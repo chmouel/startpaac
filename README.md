@@ -31,8 +31,6 @@ your path).
 Create a configuration file at `$HOME/.config/startpaac/config` with the following content:
 
 ```sh
-# Set your configuration here
-#
 # PAC_DIR is the path to the pipelines-as-code directory, it will try to detect it otherwise
 # PAC_DIR=~/path/to/pipelines-as-code
 #
@@ -58,12 +56,17 @@ Create a configuration file at `$HOME/.config/startpaac/config` with the followi
 # set as local and unset all other variable to have it running on your local VM
 # TARGET_HOST=my.vm.lan
 #
-## Hosts
+# KO_EXTRA_FLAGS are the extra flags to pass to ko
+#
+# KO_EXTRA_FLAGS=() # extra ko flags for example --platform linux/arm64 --insecure-registry
+## Hosts (not needed if TARGET_HOST is set to local)
 # setup a wildcard dns *.lan.mydomain.com to go to your TARGET_HOST vm
+# tips: if you don't want to install a dns server you can simply use
+# https://nextdns.io to let you create wildcard dns for your local network.
+#
 # DOMAIN_NAME=lan.mydomain.com
 # PAAC=paac.${DOMAIN_NAME}
 # REGISTRY=registry.${DOMAIN_NAME}
-# KO_EXTRA_FLAGS=() # extra ko flags for example --platform linux/arm64 --insecure-registry
 # FORGE_HOST=gitea.${DOMAIN_NAME}
 # DASHBOARD=dashboard.${DASHBOARD}
 #
