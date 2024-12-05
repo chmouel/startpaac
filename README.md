@@ -1,4 +1,4 @@
-# StartPAAC - All in one setup for Pipelines as Code on Kind
+# 🚀 StartPAAC - All in one setup for Pipelines as Code on Kind
 
 `startpaac` is a script to set up and configure Pipelines as Code (PAC) on a
 Kubernetes cluster using Kind. It supports installing various components such
