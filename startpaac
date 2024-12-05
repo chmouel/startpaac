@@ -1,0 +1,562 @@
+#!/usr/bin/env bash
+# Copyright 2024 Chmouel Boudjnah <chmouel@chmouel.com>
+# shellcheck disable=SC2046,SC1091
+set -eufo pipefail
+
+scale_downs_controller=""
+
+SP=$(dirname $(readlink -f "$0"))
+source ${SP}/lib/common.sh
+
+if [[ -e $HOME/.config/startpaac/config ]]; then
+  source $HOME/.config/startpaac/config
+else
+  mkdir -p $HOME/.config/startpaac
+  echo "Creating sample $HOME/.config/startpaac/config read the comment in the file and edit it with your configuration"
+  cat <<EOF >$HOME/.config/startpaac/config
+# Set your configuration here
+#
+# PAC_DIR is the path to the pipelines-as-code directory, it will try to detect it otherwise
+# PAC_DIR=~/path/to/pipelines-as-code
+#
+# PAC_PASS_SECRET_FOLDER is the path to a folder in https://passwordstore.org/
+# where you have your pac secrets. The folder contains those keys:
+# github/apps/my-app
+# ├── github-application-id
+# ├── github-private-key
+# ├── smee
+# └── webhook.secret
+# github-application-id and github-private-key are the github application id and private key when you create your github app
+# smee is the smee.io or https://hook.pipelinesascode.com generated webhook URL as set in your github apps.
+# webhook.secret is the shared secret as set in your github apps.
+# PAC_PASS_SECRET_FOLDER=github/apps/my-app
+#
+# PAC_SECRET_FOLDER is an alternative to PASS_SECRET_FOLDER where you have your
+# pac secrets in plain text. The folder has the same structure as the
+# PASS_SECRET_FOLDER the only difference is that the files are in plain text.
+#
+# PAC_SECRET_FOLDER=~/path/to/secrets
+#
+# TARGET_HOST is your vm where kind will be running, you need to have kind working there
+# set as local and unset all other variable to have it running on your local VM
+# TARGET_HOST=my.vm.lan
+#
+## Hosts
+# setup a wildcard dns *.lan.mydomain.com to go to your TARGET_HOST vm
+# DOMAIN_NAME=lan.mydomain.com
+# PAAC=paac.\${DOMAIN_NAME}
+# REGISTRY=registry.\${DOMAIN_NAME}
+# KO_EXTRA_FLAGS=() # extra ko flags for example --platform linux/arm64 --insecure-registry
+# FORGE_HOST=gitea.\${DOMAIN_NAME}
+# DASHBOARD=dashboard.\${DASHBOARD}
+#
+# Example:
+# TARGET_HOST=civuole.lan
+# KO_EXTRA_FLAGS=(--insecure-registry --platform linux/arm64)
+# DOMAIN_NAME=vm.lan
+# PAAC=paac.\${DOMAIN_NAME}
+# REGISTRY=registry.\${DOMAIN_NAME}
+# FORGE_HOST=gitea.\${DOMAIN_NAME}
+# TARGET_BIND_IP=192.168.1.5
+# DASHBOARD=dashboard.\${DOMAIN_NAME}
+# PAC_DIR=\$GOPATH/src/github.com/openshift-pipelines/pac/main
+EOF
+  exit 1
+fi
+
+secondSecret=ghe-chmouel
+PAC_CONTROLLER_TARGET_NS=pipelines-as-code
+cd ${PAC_DIR:-""} || {
+  echo "cannot find the pipelines-as-code directory, set the PAC_DIR variable to where you have checked out the github.com/openshift-pipelines/pipelines-as-code repository in your ${HOME}/.config/startpaac/config"
+  exit 1
+}
+
+[[ -n "$*" && "${*}" == *\ local ]] && TARGET_HOST=local
+
+TARGET_HOST=${TARGET_HOST:-}
+DOMAIN_NAME=${DOMAIN_NAME:-""}
+PAAC=${PAAC:-""}
+REGISTRY=${REGISTRY:-""}
+KO_EXTRA_FLAGS=${KO_EXTRA_FLAGS:-""}
+FORGE_HOST=${FORGE_HOST:-""}
+INSTALL_GITHUB_SECOND_CTRL=${INSTALL_GITHUB_SECOND_CTRL:-""}
+
+if [[ ${TARGET_HOST} == local ]]; then
+  KO_EXTRA_FLAGS=(--insecure-registry)
+  DOMAIN_NAME=${TARGET_HOST}
+  REGISTRY=registry.127.0.0.1.nip.io
+  FORGE_HOST=gitea.127.0.0.1.nip.io
+  TARGET_BIND_IP=127.0.0.1
+  DASHBOARD=dashboard.127.0.0.1.nip.io
+  PAAC=paac.127.0.0.1.nip.io
+fi
+[[ -z ${DOMAIN_NAME} || -z ${TARGET_HOST} || -z ${TARGET_BIND_IP} || -z ${REGISTRY} || -z ${DASHBOARD} || -z ${PAAC} ]] && {
+  echo "Need to set DOMAIN_NAME, TARGET_HOST, TARGET_BIND_IP, REGISTRY, DASHBOARD and PAAC in your $HOME/.config/startpaac/config"
+  exit 1
+}
+
+show_config() {
+  cat <<EOF
+Using configuration on ${TARGET_HOST}:
+
+DOMAIN_NAME: ${DOMAIN_NAME},
+TARGET_BIND_IP: ${TARGET_BIND_IP}
+PAAC: https://${PAAC}
+REGISTRY: https://${REGISTRY}
+FORGE_HOST: https://${FORGE_HOST}
+DASHBOARD: https://${DASHBOARD}
+EOF
+}
+
+TMPFILE=$(mktemp /tmp/.mm.XXXXXX)
+# shellcheck disable=SC2317
+clean() { rm -f ${TMPFILE}; }
+trap clean EXIT
+
+export KUBECONFIG=${KUBECONFIG:-$HOME/.kube/config.${DOMAIN_NAME%%.*}}
+
+if [[ -z ${TARGET_HOST} ]] || [[ -z ${DOMAIN_NAME} ]] || [[ -z ${REGISTRY} ]] || [[ -z ${KUBECONFIG} ]]; then
+  echo "Need env variable TARGET_HOST, DOMAIN_NAME and REGISTRY"
+  exit 1
+fi
+
+cache_yaml_file() {
+  local type="$1"
+  local url="$2"
+  local cache_dir="${HOME}/.cache/startpaac"
+  local filename="${cache_dir}/${type}.yaml"
+  mkdir -p ${cache_dir}
+
+  if [[ ! -e ${filename} ]]; then
+    curl --progress-bar -L --location --retry 10 --retry-max-time 10 -o ${filename} ${url}
+  fi
+  echo ${filename}
+}
+
+check_kind() {
+  output=$(ssh "${TARGET_HOST}" which kind || true)
+  [[ "${output}" == *"not found" ]] && {
+    echo "Kind is not installed on ${TARGET_HOST}"
+    exit 1
+  } || true
+}
+
+install_kind() {
+  [[ "${TARGET_HOST}" != local ]] && check_kind
+  stop_kind
+  show_step "Creating kind cluster"
+  sed -e "s/%REGISTRY%/${REGISTRY}/" -e "s/%TARGET_BIND_IP%/${TARGET_BIND_IP}/" ${SP}/lib/kind/kind.yaml >$TMPFILE
+  case ${TARGET_HOST} in
+  local)
+    kind create cluster --kubeconfig ${KUBECONFIG} --config ${TMPFILE}
+    ;;
+  *)
+    scp -q "${TMPFILE}" "${TARGET_HOST}":/tmp/.kind.yaml
+    ssh -q "${TARGET_HOST}" kind create cluster --kubeconfig .kube/$(basename ${KUBECONFIG}) --config /tmp/.kind.yaml
+    ;;
+  esac
+}
+
+install_nginx() {
+  local release_yaml
+  show_step "Installing nginx ingress"
+  release_yaml=$(cache_yaml_file nginx https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml)
+  kubectl apply -f "${release_yaml}" >/dev/null
+  kubectl -n ingress-nginx annotate ingressclasses nginx ingressclass.kubernetes.io/is-default-class="true" --overwrite=true
+  wait_for_it ingress-nginx ingress-nginx-controller
+}
+
+install_registry() {
+  show_step "Installing registry"
+  "${SP}"/lib/registry/install.sh ${REGISTRY}
+}
+
+install_tekton() {
+  local release_yaml
+  show_step "Deploying Tekton"
+  release_yaml=$(cache_yaml_file tekton https://storage.googleapis.com/tekton-releases/pipeline/latest/release.yaml)
+  kubectl apply --filename "${release_yaml}" >/dev/null
+  wait_for_it tekton-pipelines tekton-pipelines-webhook
+  kubectl patch configmap -n tekton-pipelines --type merge -p '{"data":{"enable-step-actions": "true"}}' feature-flags
+}
+
+install_dashboard() {
+  local release_yaml
+  show_step "Deploying Tekton Dashboard"
+  release_yaml=$(cache_yaml_file dashboard https://storage.googleapis.com/tekton-releases/dashboard/latest/release.yaml)
+  kubectl apply --filename "${release_yaml}" >/dev/null
+  create_ingress tekton-pipelines tekton-dashboard ${DASHBOARD} 9097
+}
+
+stop_kind() {
+  show_step "Stopping Kind"
+
+  case ${TARGET_HOST} in
+  local)
+    kind delete cluster --name kind
+    ;;
+  *)
+    ssh -q "${TARGET_HOST}" kind delete cluster --name kind
+    ;;
+  esac
+  rm -f "${KUBECONFIG}"
+}
+
+install_pac() {
+  if [[ -n ${1:-""} ]]; then
+    show_step "Deploying PAC $1"
+  else
+    show_step "Deploying PAC"
+  fi
+  local c=config
+  case ${1:-""} in
+  controller)
+    c=${c}/400-controller.yaml
+    ;;
+  watcher)
+    c=${c}/500-watcher.yaml
+    ;;
+  webhook)
+    c=${c}/600-webhook.yaml
+    ;;
+  esac
+  env KO_DOCKER_REPO="${REGISTRY}" ko apply -f "${c}" -B --sbom=none "${KO_EXTRA_FLAGS[@]}"
+
+  for controller in ${scale_downs_controller}; do
+    kubectl scale deployment -n pipelines-as-code -l app.kubernetes.io/name=${controller} --replicas=0
+  done
+}
+
+create_pac_secret() {
+  folder=$1
+  shift
+  read -a read_method <<<"$@"
+
+  kubectl delete secret pipelines-as-code-secret -n pipelines-as-code 2>/dev/null || true
+  kubectl create secret generic pipelines-as-code-secret -n pipelines-as-code
+  for passk in github-application-id github-private-key webhook.secret; do
+    if [[ ${passk} == *-key ]]; then
+      b64d=$("${read_method[@]}" "${folder}"/${passk} | base64 -w0)
+    else
+      b64d=$(echo -n $("${read_method[@]}" "${folder}"/${passk}) | base64 -w0)
+    fi
+    kubectl patch secret -n pipelines-as-code -p "{\"data\":{\"${passk}\": \"${b64d}\"}}" \
+      --type merge pipelines-as-code-secret >/dev/null
+  done
+}
+
+configure_pac() {
+  show_step "Configuring PAC"
+
+  create_ingress pipelines-as-code pipelines-as-code-controller "${PAAC}" 8080
+
+  kubectl patch configmap -n pipelines-as-code -p \
+    "{\"data\":{\"bitbucket-cloud-check-source-ip\": \"false\"}}" pipelines-as-code
+  kubectl patch configmap -n pipelines-as-code -p \
+    "{\"data\":{\"tekton-dashboard-url\": \"http://${DASHBOARD}\"}}" --type merge pipelines-as-code
+  kubectl patch configmap -n pipelines-as-code -p \
+    '{"data":{"catalog-1-id": "custom", "catalog-1-name": "tekton", "catalog-1-url": "https://api.hub.tekton.dev/v1"}}' \
+    --type merge pipelines-as-code
+
+  if [[ -n ${PAC_PASS_SECRET_FOLDER:-""} ]]; then
+    echo "Installing PAC secrets from pass folder: ${PAC_PASS_SECRET_FOLDER}"
+    create_pac_secret ${PAC_PASS_SECRET_FOLDER} pass show
+  elif [[ -n ${PAC_SECRET_FOLDER:-""} ]]; then
+    echo "Installing PAC secrets from plain text folder: ${PAC_SECRET_FOLDER}"
+    create_pac_secret ${PAC_SECRET_FOLDER} cat
+  else
+    cat <<EOF
+  **No secret has been installed**
+
+  You need to either create a pass https://www.passwordstore.org/ folder with
+  github-application-id github-private-key webhook.secret information in there
+  and export the PAC_PASS_SECRET_FOLDER variable to that folder
+
+  Or have a plain text folder with the same structure and export the
+  PAC_SECRET_FOLDER variable
+
+  Or have nothing and install the secrets manually after running the startpaac
+  script.
+EOF
+    kubectl delete secret -n pipelines-as-code pipelines-as-code-secret >/dev/null 2>/dev/null || true
+  fi
+}
+
+create_paac_secret() {
+  local secretname=$1
+  local passfolder=$2
+  echo "Installing PAC secrets"
+  kubectl delete secret ${secretname} -n pipelines-as-code 2>/dev/null || true
+  kubectl create secret generic ${secretname} -n pipelines-as-code
+  for passk in github-application-id github-private-key webhook.secret; do
+    if [[ ${passk} == *-key ]]; then
+      b64d=$(pass show "${passfolder}"/${passk} | base64 -w0)
+    else
+      b64d=$(echo -n $(pass show "${passfolder}"/${passk}) | base64 -w0)
+    fi
+    kubectl patch secret -n pipelines-as-code -p "{\"data\":{\"${passk}\": \"${b64d}\"}}" --type merge ${secretname} >/dev/null
+  done
+
+}
+
+function install_forgejo() {
+  show_step "Installing Forgejo"
+  "${SP}"/lib/forgejo/install.sh ${1}
+}
+
+function sync_kubeconfig() {
+  [[ ${TARGET_HOST} == local ]] && return
+  show_step "Syncing kubeconfig"
+  scp -q "${TARGET_HOST}":.kube/$(basename ${KUBECONFIG}) "${KUBECONFIG}"
+  echo "${KUBECONFIG} from ${TARGET_HOST} has been updated"
+  chmod 600 "${KUBECONFIG}"
+}
+
+function start_user_gosmee() {
+  local service=${1:-"gosmee"}
+  type -p systemctl >/dev/null 2>/dev/null && return
+  [[ -e ${HOME}/.config/systemd/user/${service}.service ]] || {
+    echo "Skipping cannot find ${HOME}/.config/systemd/user/${service}.service"
+    return
+  }
+  show_step "Running ${service} systemd service locally for user $USER"
+  systemctl --user restart ${service} >/dev/null 2>&1 || true
+  systemctl --user status ${service} -o cat
+  if kubectl get deployment gosmee-ghe -n "${PAC_CONTROLLER_TARGET_NS}" >/dev/null 2>&1; then
+    kubectl scale deployment gosmee-ghe -n "${PAC_CONTROLLER_TARGET_NS}" --replicas=0 >/dev/null || true
+    echo "Deployment $(echo_color red gosmee-ghe) has been scaled down"
+  fi
+}
+
+function install_github_second_ctrl() {
+  show_step "Installing GHE second controller for github"
+  export PAC_CONTROLLER_LABEL=${PAC_CONTROLLER_LABEL:-"ghe"}
+  export PAC_CONTROLLER_SECRET=${PAC_CONTROLLER_SECRET:-${PAC_CONTROLLER_LABEL}-secret}
+  export PAC_CONTROLLER_CONFIGMAP=${PAC_CONTROLLER_CONFIGMAP:-${PAC_CONTROLLER_LABEL}-configmap}
+  export PAC_CONTROLLER_TARGET_NS="pipelines-as-code"
+  export PAC_CONTROLLER_IMAGE=${PAC_CONTROLLER_IMAGE:-"ko"}
+  local kind_url=http://${DASHBOARD}
+  local pass_secret_folder=github/apps/${secondSecret}
+  local pass_env_folder=pac/vars/${secondSecret}
+  echo "Using pass_secret_folder: ${pass_secret_folder}"
+  PAC_CONTROLLER_SMEE_URL=$(pass show ${pass_env_folder} | sed -n '/SMEE_URL/ { s/.*=//;p}')
+  export PAC_CONTROLLER_SMEE_URL
+  hack/second-controller.py ${PAC_CONTROLLER_LABEL} | tee /tmp/.second.controller.debug.yaml | env KO_DOCKER_REPO="${REGISTRY}" ko apply -f- -B --sbom=none "${KO_EXTRA_FLAGS[@]}"
+  kubectl patch configmap -n ${PAC_CONTROLLER_TARGET_NS} -p '{"data":{"application-name": "Pipelines as Code GHE"}}' ${PAC_CONTROLLER_CONFIGMAP}
+  kubectl patch configmap -n ${PAC_CONTROLLER_TARGET_NS} -p "{\"data\":{\"tekton-dashboard-url\": \"${kind_url}\"}}" --type merge ${PAC_CONTROLLER_CONFIGMAP}
+  kubectl patch configmap -n ${PAC_CONTROLLER_TARGET_NS} -p '{"data":{"catalog-2-id": "custom2", "catalog-2-name": "tekton", "catalog-2-url": "https://api.hub.tekton.dev/v1"}}' --type merge ${PAC_CONTROLLER_CONFIGMAP}
+  kubectl delete secret ${PAC_CONTROLLER_SECRET} -n ${PAC_CONTROLLER_TARGET_NS} >/dev/null 2>/dev/null || true
+  kubectl create secret generic ${PAC_CONTROLLER_SECRET} -n ${PAC_CONTROLLER_TARGET_NS} >/dev/null
+  create_paac_secret ${PAC_CONTROLLER_SECRET} ${pass_secret_folder}
+  create_ingress ${PAC_CONTROLLER_TARGET_NS} ${PAC_CONTROLLER_LABEL}-controller ${PAC_CONTROLLER_LABEL}."${DOMAIN_NAME}" 8080
+  start_user_gosmee ghe
+}
+
+function install_custom_crds() {
+  show_step "Installing custom CRDs"
+  [[ -d $HOME/Sync/paac/crds ]] || {
+    echo "Cannot find $HOME/Sync/paac/crds"
+    exit 1
+  }
+  kubectl apply -f $HOME/Sync/paac/crds
+}
+
+function set_namespace() {
+  local ns=${1:-"default"}
+  kubectl config set-context --current --namespace=${ns}
+}
+
+all() {
+  sync_kubeconfig
+  install_nginx
+  install_registry
+  install_tekton
+  install_dashboard
+  install_pac
+  configure_pac
+  [[ -z ${INSTALL_GITHUB_SECOND_CTRL} ]] && install_forgejo ${FORGE_HOST}
+  install_custom_crds
+
+  start_user_gosmee gosmee
+
+  show_step "Setting current namespace context to pipelines-as-code"
+  set_namespace pipelines-as-code
+}
+
+function help() {
+  # Define color variables
+  local NO_COLOR='\033[0m'
+  local GREEN='\033[1;32m'
+  local YELLOW='\033[1;33m'
+  local BOLD='\033[1m'
+
+  echo -e "
+${BOLD}program.sh [options]${NO_COLOR}
+
+${GREEN}-a|--all${NO_COLOR}                Install everything
+${GREEN}-A|--all-but-kind${NO_COLOR}       Install everything but kind
+${GREEN}-k|--kind${NO_COLOR}               (Re)Install Kind
+${GREEN}-g|--install-forge${NO_COLOR}      Install forgejo
+${GREEN}-c|--component${NO_COLOR}          Deploy a component (controller, watcher, webhook)
+${GREEN}-p|--install-paac${NO_COLOR}       Deploy and configure PAC
+${GREEN}-h|--help${NO_COLOR}               This help
+${GREEN}-s|--sync-kubeconfig${NO_COLOR}    Sync kubeconfig from the remote host
+${GREEN}-G|--start-user-gosmee${NO_COLOR}  Start gosmee locally for user \$USER
+${GREEN}-S|--github-second-ctrl${NO_COLOR} Deploy second controller for github
+${GREEN}--install-nginx${NO_COLOR}         Install nginx
+${GREEN}--install-dashboard${NO_COLOR}     Install Tekton dashboard
+${GREEN}--install-tekton${NO_COLOR}        Install Tekton
+${GREEN}--install-custom-crds${NO_COLOR}   Install custom CRDs
+${GREEN}--second-secret=SECRET${NO_COLOR}  Pass name for the second controller secret, default: \${secondSecret}
+${GREEN}--stop-kind${NO_COLOR}             Stop Kind${NO_COLOR}
+
+Author: Chmouel Boudjnah <chmouel@chmouel.com>
+    "
+}
+
+function parse_args() {
+  # use getopt to parse arguments
+  args=$(getopt \
+    -o OHASGsakhgc:p \
+    --long \
+    "all,
+    all-but-kind,
+    all-github-second-no-forgejo
+    all-to-tekton,
+    configure-pac,
+    deploy-component:,
+    github-second-ctrl,
+    help,
+    install-custom-crds,
+    install-dashboard,
+    install-forge,
+    install-nginx,
+    install-paac,
+    install-registry,
+    install-tekton,stop-kind,
+    openshift:,
+    redeploy-kind,
+    second-secret:,
+    start-user-gosmee,
+    sync-kubeconfig
+    " -- "$@")
+  #shellcheck disable=SC2181
+  if [ $? -ne 0 ]; then
+    exit 1
+  fi
+  eval set -- "$args"
+  while true; do
+    case "$1" in
+    -O | --scale-down)
+      scale_downs_controller=$2
+      ;;
+    -g | --install-forge)
+      install_forgejo ${FORGE_HOST}
+      exit
+      ;;
+    --stop-kind)
+      stop_kind
+      exit
+      ;;
+    --second-secret)
+      secondSecret=$2
+      install_github_second_ctrl
+      exit
+      ;;
+    -s | --sync-kubeconfig)
+      sync_kubeconfig
+      exit
+      ;;
+    -S | --github-second-ctrl)
+      install_github_second_ctrl
+      exit
+      ;;
+    -H | --all-github-second-no-forgejo)
+      install_kind
+      all
+      install_github_second_ctrl
+      show_config
+      exit
+      ;;
+    -G | --start-user-gosmee)
+      start_user_gosmee gosmee
+      exit
+      ;;
+    --install-registry)
+      install_registry
+      exit
+      ;;
+    --install-dashboard)
+      install_dashboard
+      exit
+      ;;
+    -t | --install-tekton)
+      install_tekton
+      exit
+      ;;
+    --install-nginx)
+      install_nginx
+      exit
+      ;;
+    -a | --all)
+      install_kind
+      all
+      show_config
+      exit
+      ;;
+    -A | --all-but-kind)
+      all
+      exit
+      ;;
+    --all-to-tekton)
+      install_kind
+      sync_kubeconfig
+      install_nginx
+      install_registry
+      install_tekton
+      show_config
+      exit
+      ;;
+    -c | --component)
+      install_pac "$2"
+      exit
+      ;;
+    --install-custom-crds)
+      install_custom_crds
+      exit
+      ;;
+    --configure-pac)
+      configure_pac
+      exit
+      ;;
+    -p | --install-paac)
+      install_pac
+      configure_pac
+      exit
+      ;;
+    -k | --kind)
+      install_kind
+      sync_kubeconfig
+      exit
+      ;;
+    -h | --help)
+      help
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      echo "Not implemented"
+      help
+      exit 1
+      ;;
+    esac
+  done
+
+  help
+  exit
+}
+
+parse_args "$@"

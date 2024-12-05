@@ -1,0 +1,39 @@
+#compdef startpaac
+
+local ret=1
+local -a state state_descr args
+
+args=(
+    {-a,--all}'[Install everything]'
+    {-A,--all-but-kind}'[Install everything bu kind]'
+    {-k,--kind}'[(Re)Install Kind]'
+    {-g,--install-forge}'[Install a Forge]'
+    {-c,--component}'[Deploy a component]:pac component:(controller watcher webhook)'
+    {-p,--install-paac}'[Deploy and configure PAC]'
+    {-h,--help}'[Display help]'
+    {-s,--sync-kubeconfig}'[Sync kubeconfig from the remote host]'
+    {-G,--start-user-gosmee}'[Start gosmee locally for user $USER]'
+    {-S,--github-second-ctrl}'[Deploy second controller for github]'
+    {-o,--openshift}'[Deploy via openshift operator]:mode:(ko kw ko-watcher ko-all ko-stable operator operator-stable upstream upstream-stable )'
+    '--stop-kind[Stop Kind]'
+    '--install-nginx[Install nginx]'
+    '--all-to-tekton[Install everything to Tekton]'
+    '--install-dashboard[Install Tekton dashboard]'
+    '--install-registry[Install Docker registry]'
+    '--install-tekton[Install Tekton]'
+    '--second-secret[Name of second secret]: :->profile'
+    '--configure-pac[Configure PAC]'
+    '--install-custom-crds[Install custom CRDs]'
+)
+
+_arguments : $args && ret=0
+
+case $state in
+    profile)
+        local passvars=(~/.password-store/pac/vars/*(:t:s/.gpg//))
+        [[ -n ${passvars} ]] && { _values 'pass environment' ${passvars[@]} && ret=0 ;} || \
+            _message 'no pass vars'
+        ;;
+esac
+
+return ret
