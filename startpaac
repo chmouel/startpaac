@@ -555,7 +555,27 @@ function parse_args() {
     esac
   done
 
-  help
+  show_config
+  echo
+  echo "We are about to install the following steps:"
+  if [[ ${TARGET_HOST} != local ]]; then
+    echo " - Install Kind on ${TARGET_HOST}"
+  else
+    echo " - Install Kind on your local machine"
+  fi
+  echo " - Install Nginx"
+  echo " - Install Registry"
+  echo " - Install Tekton"
+  echo " - Install Tekton Dashboard"
+  echo " - Install PAC"
+  echo " - Configure PAC"
+  echo
+  read -p "Do you want to continue? [y/N] " -n 1 -r
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Exiting"
+    exit 1
+  fi
+  all
   exit
 }
 

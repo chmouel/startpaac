@@ -122,6 +122,9 @@ Run the script with the desired options:
 ./startpaac [options]
 ```
 
+By default, the script will install everything asking you to confirm before. If
+you don't want confirmation just use the `-a` option.
+
 ### Options
 
 - `-a|--all`                Install everything
