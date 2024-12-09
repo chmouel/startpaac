@@ -160,37 +160,6 @@ install_kind() {
   esac
 }
 
-install_nginx() {
-  local release_yaml
-  show_step "Installing nginx ingress"
-  release_yaml=$(cache_yaml_file nginx https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml)
-  kubectl apply -f "${release_yaml}" >/dev/null
-  kubectl -n ingress-nginx annotate ingressclasses nginx ingressclass.kubernetes.io/is-default-class="true" --overwrite=true
-  wait_for_it ingress-nginx ingress-nginx-controller
-}
-
-install_registry() {
-  show_step "Installing registry"
-  "${SP}"/lib/registry/install.sh ${REGISTRY}
-}
-
-install_tekton() {
-  local release_yaml
-  show_step "Deploying Tekton"
-  release_yaml=$(cache_yaml_file tekton https://storage.googleapis.com/tekton-releases/pipeline/latest/release.yaml)
-  kubectl apply --filename "${release_yaml}" >/dev/null
-  wait_for_it tekton-pipelines tekton-pipelines-webhook
-  kubectl patch configmap -n tekton-pipelines --type merge -p '{"data":{"enable-step-actions": "true"}}' feature-flags
-}
-
-install_dashboard() {
-  local release_yaml
-  show_step "Deploying Tekton Dashboard"
-  release_yaml=$(cache_yaml_file dashboard https://storage.googleapis.com/tekton-releases/dashboard/latest/release.yaml)
-  kubectl apply --filename "${release_yaml}" >/dev/null
-  create_ingress tekton-pipelines tekton-dashboard ${DASHBOARD} 9097
-}
-
 stop_kind() {
   show_step "Stopping Kind"
 
@@ -203,31 +172,6 @@ stop_kind() {
     ;;
   esac
   rm -f "${KUBECONFIG}"
-}
-
-install_pac() {
-  if [[ -n ${1:-""} ]]; then
-    show_step "Deploying PAC $1"
-  else
-    show_step "Deploying PAC"
-  fi
-  local c=config
-  case ${1:-""} in
-  controller)
-    c=${c}/400-controller.yaml
-    ;;
-  watcher)
-    c=${c}/500-watcher.yaml
-    ;;
-  webhook)
-    c=${c}/600-webhook.yaml
-    ;;
-  esac
-  env KO_DOCKER_REPO="${REGISTRY}" ko apply -f "${c}" -B --sbom=none "${KO_EXTRA_FLAGS[@]}"
-
-  for controller in ${scale_downs_controller}; do
-    kubectl scale deployment -n pipelines-as-code -l app.kubernetes.io/name=${controller} --replicas=0
-  done
 }
 
 create_pac_secret() {
