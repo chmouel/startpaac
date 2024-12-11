@@ -5,7 +5,8 @@ set -eufo pipefail
 
 scale_downs_controller=""
 
-SP=$(dirname $(readlink -f "$0"))
+Miself=$(readlink -f "$0")
+SP=$(dirname ${Miself})
 source ${SP}/lib/common.sh
 
 if [[ -e $HOME/.config/startpaac/config ]]; then
@@ -389,31 +390,13 @@ all() {
 function help() {
   # Define color variables
   local NO_COLOR='\033[0m'
-  local GREEN='\033[1;32m'
-  local YELLOW='\033[1;33m'
   local BOLD='\033[1m'
 
+  echo -e "${BOLD}program.sh [options]${NO_COLOR}
+    "
+  grep -E '^\s*-.*\)\s*#' "$Miself" | sed -e 's/^[ ]*//' -e "s/\(.*\)) # /\1 @ /" | column -t -s $'@'
   echo -e "
-${BOLD}program.sh [options]${NO_COLOR}
-
-${GREEN}-a|--all${NO_COLOR}                Install everything
-${GREEN}-A|--all-but-kind${NO_COLOR}       Install everything but kind
-${GREEN}-k|--kind${NO_COLOR}               (Re)Install Kind
-${GREEN}-g|--install-forge${NO_COLOR}      Install forgejo
-${GREEN}-c|--component${NO_COLOR}          Deploy a component (controller, watcher, webhook)
-${GREEN}-p|--install-paac${NO_COLOR}       Deploy and configure PAC
-${GREEN}-h|--help${NO_COLOR}               This help
-${GREEN}-s|--sync-kubeconfig${NO_COLOR}    Sync kubeconfig from the remote host
-${GREEN}-G|--start-user-gosmee${NO_COLOR}  Start gosmee locally for user \$USER
-${GREEN}-S|--github-second-ctrl${NO_COLOR} Deploy second controller for github
-${GREEN}--install-nginx${NO_COLOR}         Install nginx
-${GREEN}--install-dashboard${NO_COLOR}     Install Tekton dashboard
-${GREEN}--install-tekton${NO_COLOR}        Install Tekton
-${GREEN}--install-custom-crds${NO_COLOR}   Install custom CRDs
-${GREEN}--second-secret=SECRET${NO_COLOR}  Pass name for the second controller secret, default: \${secondSecret}
-${GREEN}--stop-kind${NO_COLOR}             Stop Kind${NO_COLOR}
-
-Author: Chmouel Boudjnah <chmouel@chmouel.com>
+${BOLD}Author: Chmouel Boudjnah <chmouel@chmouel.com>${NO_COLOR}
     "
 }
 
@@ -450,68 +433,68 @@ function parse_args() {
   eval set -- "$args"
   while true; do
     case "$1" in
-    -O | --scale-down)
+    -O | --scale-down) # scale down the controller
       scale_downs_controller=$2
       ;;
-    -g | --install-forge)
+    -g | --install-forge) # Install Forgejo
       install_forgejo ${FORGE_HOST}
       exit
       ;;
-    --stop-kind)
+    --stop-kind) # Stop Kind
       stop_kind
       exit
       ;;
-    --second-secret)
+    --second-secret) # Set the secret for the second controller
       secondSecret=$2
       install_github_second_ctrl
       exit
       ;;
-    -s | --sync-kubeconfig)
+    -s | --sync-kubeconfig) # Sync kubeconfig
       sync_kubeconfig
       exit
       ;;
-    -S | --github-second-ctrl)
+    -S | --github-second-ctrl) # Deploy second controller for github
       install_github_second_ctrl
       exit
       ;;
-    -H | --all-github-second-no-forgejo)
+    -H | --all-github-second-no-forgejo) # Install everything but forgejo
       install_kind
       all
       install_github_second_ctrl
       show_config
       exit
       ;;
-    -G | --start-user-gosmee)
+    -G | --start-user-gosmee) # Start gosmee locally for user $USER
       start_user_gosmee gosmee
       exit
       ;;
-    --install-registry)
+    --install-registry) # Install dockerk registry
       install_registry
       exit
       ;;
-    --install-dashboard)
+    --install-dashboard) # Install Tekton dashboard
       install_dashboard
       exit
       ;;
-    -t | --install-tekton)
+    -t | --install-tekton) # Install Tekton
       install_tekton
       exit
       ;;
-    --install-nginx)
+    --install-nginx) # Install Nginx
       install_nginx
       exit
       ;;
-    -a | --all)
+    -a | --all) # Install everything
       install_kind
       all
       show_config
       exit
       ;;
-    -A | --all-but-kind)
+    -A | --all-but-kind) # Install everything but kind
       all
       exit
       ;;
-    --all-to-tekton)
+    --all-to-tekton) # Install everything up to Tekton
       install_kind
       sync_kubeconfig
       install_nginx
@@ -520,29 +503,29 @@ function parse_args() {
       show_config
       exit
       ;;
-    -c | --component)
+    -c | --component) # Install a specific component
       install_pac "$2"
       exit
       ;;
-    --install-custom-crds)
+    --install-custom-crds) # Install custom crds
       install_custom_crds
       exit
       ;;
-    --configure-pac)
+    --configure-pac) # Configure PAC
       configure_pac
       exit
       ;;
-    -p | --install-paac)
+    -p | --install-paac) # Deploy and configure PAC
       install_pac
       configure_pac
       exit
       ;;
-    -k | --kind)
+    -k | --kind) # Install Kind
       install_kind
       sync_kubeconfig
       exit
       ;;
-    -h | --help)
+    -h | --help) # Show help
       help
       exit 0
       ;;
