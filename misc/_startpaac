@@ -14,7 +14,6 @@ args=(
     {-s,--sync-kubeconfig}'[Sync kubeconfig from the remote host]'
     {-G,--start-user-gosmee}'[Start gosmee locally for user $USER]'
     {-S,--github-second-ctrl}'[Deploy second controller for github]'
-    {-o,--openshift}'[Deploy via openshift operator]:mode:(ko kw ko-watcher ko-all ko-stable operator operator-stable upstream upstream-stable )'
     '--stop-kind[Stop Kind]'
     '--install-nginx[Install nginx]'
     '--all-to-tekton[Install everything to Tekton]'
