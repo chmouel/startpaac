@@ -16,11 +16,11 @@ Components that get installed are:
 
 ## Prerequisites
 
-- [Kind](https://kind.sigs.k8s.io/)
-- [Helm](https://helm.sh/)
-- [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
-- [ko](https://github.com/google/ko)
-- [pass](https://www.passwordstore.org/) (optional, for managing secrets)
+- [Kind](https://kind.sigs.k8s.io/) - Kubernetes in Docker
+- [Helm](https://helm.sh/) - Kubernetes package manager
+- [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/) - Kubernetes command-line tool
+- [ko](https://github.com/google/ko) - Build and deploy Go applications on Kubernetes
+- [pass](https://www.passwordstore.org/) (optional, for managing secrets) - Password manager
 - GNU Tools (ie for osx/bsd use the one from homebrew like
 [coreutils](https://formulae.brew.sh/formula/coreutils) and
 [sed](https://formulae.brew.sh/formula/gnu-sed#default) and configure them in
