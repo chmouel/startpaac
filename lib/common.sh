@@ -78,61 +78,6 @@ show_step() {
   printf "${green}╚${reset}" && printf "${green}═%.0s${reset}" $(seq 1 $((length - 2))) && printf "${green}╝${reset}\n"
 }
 
-create_tls_secret() {
-  local host=$1
-  local sec_name=$2
-  local namespace=$3
-  local key_file=${CERT_DIR}/${host}/key.pem
-  local cert_file=${CERT_DIR}/${host}/cert.pem
-  generate_certs_minica ${host}
-  kubectl delete secret ${sec_name} -n ${namespace} || true
-  kubectl create secret tls ${sec_name} --key ${key_file} --cert ${cert_file} -n ${namespace}
-}
-
-create_ingress() {
-  local namespace=$1
-  local component=$2
-  local host=$3
-  local targetPort=$4
-  local sec_name=${component}-tls
-  create_tls_secret ${host} ${sec_name} ${namespace}
-
-  echo "Creating ingress on $(echo_color brightgreen https://${host}) for ${component}:${targetPort} in ${namespace}"
-  cat <<EOF | kubectl apply -f -
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: "${component}"
-  namespace: "${namespace}"
-spec:
-  ingressClassName: nginx
-  tls:
-    - hosts:
-        - "${host}"
-      secretName: "${sec_name}"
-  rules:
-    - host: "${host}"
-      http:
-        paths:
-          - pathType: ImplementationSpecific
-            backend:
-              service:
-                name: "${component}"
-                port:
-                  number: ${targetPort}
-EOF
-}
-
-generate_certs_minica() {
-  local domain="$1"
-  [[ -e ${CERT_DIR}/${domain}/cert.pem ]] && return 0
-  mkdir -p ${CERT_DIR}
-  pass show minica/cert >${CERT_DIR}/minica.pem
-  pass show minica/key >${CERT_DIR}/minica-key.pem
-  (cd ${CERT_DIR} && minica -domains ${domain})
-}
-
 wait_for_it() {
   local namespace=$1
   local component=$2
@@ -172,4 +117,93 @@ check_tools() {
     fi
   done
   return 0
+}
+
+show_config() {
+  cat <<EOF
+Using configuration on ${TARGET_HOST}:
+
+DOMAIN_NAME: ${DOMAIN_NAME},
+TARGET_BIND_IP: ${TARGET_BIND_IP}
+PAAC: https://${PAAC}
+REGISTRY: https://${REGISTRY}
+FORGE_HOST: https://${FORGE_HOST}
+DASHBOARD: https://${DASHBOARD}
+GOSMEE:
+ gosmee client --saveDir /tmp/replay $(pass show ${PAC_PASS_SECRET_FOLDER}/smee) https://${PAAC}
+EOF
+}
+
+cache_yaml_file() {
+  local type="$1"
+  local url="$2"
+  local cache_dir="${HOME}/.cache/startpaac"
+  local filename="${cache_dir}/${type}.yaml"
+  local week_in_seconds=604800 # 7 days * 24 hours * 60 minutes * 60 seconds
+  mkdir -p ${cache_dir}
+
+  # Get file modification time in a cross-platform way
+  get_mtime() {
+    if type -p gstat >/dev/null; then
+      gstat -c %Y "$1"
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+      stat -f %m "$1"
+    else
+      stat -c %Y "$1"
+    fi
+  }
+
+  # Check if file exists and is older than a week
+  if [[ ! -e ${filename} ]] ||
+    [[ $(($(date +%s) - $(get_mtime "${filename}"))) -gt ${week_in_seconds} ]]; then
+    curl --progress-bar -L --location --retry 10 --retry-max-time 10 -o ${filename} ${url}
+  fi
+  echo ${filename}
+}
+
+install_registry() {
+  show_step "Installing registry"
+  "${SP}"/lib/registry/install.sh ${REGISTRY}
+}
+
+function install_forgejo() {
+  show_step "Installing Forgejo"
+  "${SP}"/lib/forgejo/install.sh ${1}
+}
+
+function start_user_gosmee() {
+  local service=${1:-"gosmee"}
+  local smeeurl=${2:-}
+  local controllerURL=${3:-}
+  type -p systemctl >/dev/null 2>/dev/null && return
+  [[ -e ${HOME}/.config/systemd/user/${service}.service ]] || {
+    if [[ -n ${smeeurl} ]]; then
+      show_step "Run gosmee manually"
+      echo "gosmee client --saveDir /tmp/replay ${smeeurl} https://${controllerURL}"
+    else
+      echo "Skipping running gosmee: cannot find ${HOME}/.config/systemd/user/${service}.service"
+    fi
+    return
+  }
+  show_step "Running ${service} systemd service locally for user $USER"
+  systemctl --user restart ${service} >/dev/null 2>&1 || true
+  systemctl --user status ${service} -o cat
+  if kubectl get deployment gosmee-ghe -n "${PAC_CONTROLLER_TARGET_NS}" >/dev/null 2>&1; then
+    kubectl scale deployment gosmee-ghe -n "${PAC_CONTROLLER_TARGET_NS}" --replicas=0 >/dev/null || true
+    echo "Deployment $(echo_color red gosmee-ghe) has been scaled down"
+  fi
+}
+
+function install_custom_crds() {
+  show_step "Installing custom CRDs"
+  [[ -d $HOME/Sync/paac/crds ]] || {
+    echo "Cannot find $HOME/Sync/paac/crds"
+    exit 1
+  }
+  kubectl apply -f $HOME/Sync/paac/crds
+}
+
+function set_namespace() {
+  local ns=${1:-"default"}
+  kubectl config set-context --current --namespace=${ns}
 }

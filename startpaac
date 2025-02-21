@@ -3,12 +3,14 @@
 # shellcheck disable=SC2046,SC1091
 set -eufo pipefail
 
-scale_downs_controller=""
-
-Miself=$(readlink -f "$0")
-SP=$(dirname ${Miself})
+script_path=$(readlink -f "$0")
+SP=$(dirname ${script_path})
 source ${SP}/lib/common.sh
 source ${SP}/lib/config.sh
+source ${SP}/lib/kind/kind.sh
+source ${SP}/lib/tls.sh
+source ${SP}/lib/tekton.sh
+source ${SP}/lib/nginx.sh
 
 PAC_CONTROLLER_TARGET_NS=pipelines-as-code
 [[ -z ${PAC_DIR:-""} ]] && {
@@ -51,6 +53,7 @@ fi
   exit 1
 }
 
+SCALE_DOWNS_CONTROLLER=${PAC_SCALE_DOWNS_CONTROLLER:-""}
 TMPFILE=$(mktemp /tmp/.mm.XXXXXX)
 # shellcheck disable=SC2317
 clean() { rm -f ${TMPFILE}; }
@@ -62,290 +65,6 @@ if [[ -z ${TARGET_HOST} ]] || [[ -z ${DOMAIN_NAME} ]] || [[ -z ${REGISTRY} ]] ||
   echo "Need env variable TARGET_HOST, DOMAIN_NAME and REGISTRY"
   exit 1
 fi
-
-show_config() {
-  cat <<EOF
-Using configuration on ${TARGET_HOST}:
-
-DOMAIN_NAME: ${DOMAIN_NAME},
-TARGET_BIND_IP: ${TARGET_BIND_IP}
-PAAC: https://${PAAC}
-REGISTRY: https://${REGISTRY}
-FORGE_HOST: https://${FORGE_HOST}
-DASHBOARD: https://${DASHBOARD}
-GOSMEE:
- gosmee client --saveDir /tmp/replay $(pass show ${PAC_PASS_SECRET_FOLDER}/smee) https://${PAAC}
-EOF
-}
-
-cache_yaml_file() {
-  local type="$1"
-  local url="$2"
-  local cache_dir="${HOME}/.cache/startpaac"
-  local filename="${cache_dir}/${type}.yaml"
-  mkdir -p ${cache_dir}
-
-  if [[ ! -e ${filename} ]]; then
-    curl --progress-bar -L --location --retry 10 --retry-max-time 10 -o ${filename} ${url}
-  fi
-  echo ${filename}
-}
-
-check_kind() {
-  output=$(ssh "${TARGET_HOST}" which kind || true)
-  [[ "${output}" == *"not found" ]] && {
-    echo "Kind is not installed on ${TARGET_HOST}"
-    exit 1
-  } || true
-}
-
-install_kind() {
-  [[ "${TARGET_HOST}" != local ]] && check_kind
-  stop_kind
-  show_step "Creating kind cluster"
-  local kfilename=${SP}/lib/kind/kind.yaml
-  sed -e "s/%REGISTRY%/${REGISTRY}/" -e "s/%TARGET_BIND_IP%/${TARGET_BIND_IP}/" ${kfilename} >$TMPFILE
-  case ${TARGET_HOST} in
-  local)
-    kind create cluster --kubeconfig ${KUBECONFIG} --config ${TMPFILE}
-    ;;
-  *)
-    scp -q "${TMPFILE}" "${TARGET_HOST}":/tmp/.kind.yaml
-    ssh -q "${TARGET_HOST}" kind create cluster --kubeconfig .kube/$(basename ${KUBECONFIG}) --config /tmp/.kind.yaml
-    ;;
-  esac
-}
-
-install_nginx() {
-  local release_yaml
-  show_step "Installing nginx ingress"
-  release_yaml=$(cache_yaml_file nginx https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml)
-  kubectl apply -f "${release_yaml}" >/dev/null
-  kubectl -n ingress-nginx annotate ingressclasses nginx ingressclass.kubernetes.io/is-default-class="true" --overwrite=true
-  wait_for_it ingress-nginx ingress-nginx-controller
-}
-
-install_registry() {
-  show_step "Installing registry"
-  "${SP}"/lib/registry/install.sh ${REGISTRY}
-}
-
-install_tekton() {
-  local release_yaml
-  show_step "Deploying Tekton"
-  release_yaml=$(cache_yaml_file tekton https://storage.googleapis.com/tekton-releases/pipeline/latest/release.yaml)
-  kubectl apply --filename "${release_yaml}" >/dev/null
-  wait_for_it tekton-pipelines tekton-pipelines-webhook
-  kubectl patch configmap -n tekton-pipelines --type merge -p '{"data":{"enable-step-actions": "true"}}' feature-flags
-}
-
-install_dashboard() {
-  local release_yaml
-  show_step "Deploying Tekton Dashboard"
-  release_yaml=$(cache_yaml_file dashboard https://storage.googleapis.com/tekton-releases/dashboard/latest/release.yaml)
-  kubectl apply --filename "${release_yaml}" >/dev/null
-  create_ingress tekton-pipelines tekton-dashboard ${DASHBOARD} 9097
-}
-
-stop_kind() {
-  show_step "Stopping Kind"
-
-  case ${TARGET_HOST} in
-  local)
-    kind delete cluster --name kind
-    ;;
-  *)
-    ssh -q "${TARGET_HOST}" kind delete cluster --name kind
-    ;;
-  esac
-  rm -f "${KUBECONFIG}"
-}
-
-install_pac() {
-  if [[ -n ${1:-""} ]]; then
-    show_step "Deploying PAC $1"
-  else
-    show_step "Deploying PAC"
-  fi
-  local c=config
-  case ${1:-""} in
-  controller)
-    c=${c}/400-controller.yaml
-    ;;
-  watcher)
-    c=${c}/500-watcher.yaml
-    ;;
-  webhook)
-    c=${c}/600-webhook.yaml
-    ;;
-  esac
-  env KO_DOCKER_REPO="${REGISTRY}" ko apply -f "${c}" -B --sbom=none "${KO_EXTRA_FLAGS[@]}"
-
-  for controller in ${scale_downs_controller}; do
-    kubectl scale deployment -n pipelines-as-code -l app.kubernetes.io/name=${controller} --replicas=0
-  done
-}
-
-create_pac_secret() {
-  folder=$1
-  shift
-  read -a read_method <<<"$@"
-
-  kubectl delete secret pipelines-as-code-secret -n pipelines-as-code 2>/dev/null || true
-  kubectl create secret generic pipelines-as-code-secret -n pipelines-as-code
-  for passk in github-application-id github-private-key webhook.secret; do
-    if [[ ${passk} == *-key ]]; then
-      b64d=$("${read_method[@]}" "${folder}"/${passk} | base64 -w0)
-    else
-      b64d=$(echo -n $("${read_method[@]}" "${folder}"/${passk}) | base64 -w0)
-    fi
-    kubectl patch secret -n pipelines-as-code -p "{\"data\":{\"${passk}\": \"${b64d}\"}}" \
-      --type merge pipelines-as-code-secret >/dev/null
-  done
-}
-
-configure_pac() {
-  show_step "Configuring PAC"
-
-  create_ingress pipelines-as-code pipelines-as-code-controller "${PAAC}" 8080
-
-  kubectl patch configmap -n pipelines-as-code -p \
-    "{\"data\":{\"bitbucket-cloud-check-source-ip\": \"false\"}}" pipelines-as-code
-  kubectl patch configmap -n pipelines-as-code -p \
-    "{\"data\":{\"tekton-dashboard-url\": \"http://${DASHBOARD}\"}}" --type merge pipelines-as-code
-  kubectl patch configmap -n pipelines-as-code -p \
-    '{"data":{"catalog-1-id": "custom", "catalog-1-name": "tekton", "catalog-1-url": "https://api.hub.tekton.dev/v1"}}' \
-    --type merge pipelines-as-code
-
-  if [[ -n ${PAC_PASS_SECRET_FOLDER:-""} ]]; then
-    echo "Installing PAC secrets from pass folder: ${PAC_PASS_SECRET_FOLDER}"
-    create_pac_secret ${PAC_PASS_SECRET_FOLDER} pass show
-  elif [[ -n ${PAC_SECRET_FOLDER:-""} ]]; then
-    echo "Installing PAC secrets from plain text folder: ${PAC_SECRET_FOLDER}"
-    create_pac_secret ${PAC_SECRET_FOLDER} cat
-  else
-    cat <<EOF
-  **No secret has been installed**
-
-  You need to either create a pass https://www.passwordstore.org/ folder with
-  github-application-id github-private-key webhook.secret information in there
-  and export the PAC_PASS_SECRET_FOLDER variable to that folder
-
-  Or have a plain text folder with the same structure and export the
-  PAC_SECRET_FOLDER variable
-
-  Or have nothing and install the secrets manually after running the startpaac
-  script.
-EOF
-    kubectl delete secret -n pipelines-as-code pipelines-as-code-secret >/dev/null 2>/dev/null || true
-  fi
-}
-
-create_paac_secret() {
-  local secretname=$1
-  local passfolder=$2
-  echo "Installing PAC secrets"
-  kubectl delete secret ${secretname} -n pipelines-as-code 2>/dev/null || true
-  kubectl create secret generic ${secretname} -n pipelines-as-code
-  for passk in github-application-id github-private-key webhook.secret; do
-    if [[ ${passk} == *-key ]]; then
-      b64d=$(pass show "${passfolder}"/${passk} | base64 -w0)
-    else
-      b64d=$(echo -n $(pass show "${passfolder}"/${passk}) | base64 -w0)
-    fi
-    kubectl patch secret -n pipelines-as-code -p "{\"data\":{\"${passk}\": \"${b64d}\"}}" --type merge ${secretname} >/dev/null
-  done
-
-}
-
-function install_forgejo() {
-  show_step "Installing Forgejo"
-  "${SP}"/lib/forgejo/install.sh ${1}
-}
-
-function sync_kubeconfig() {
-  [[ ${TARGET_HOST} == local ]] && return
-  show_step "Syncing kubeconfig"
-  scp -q "${TARGET_HOST}":.kube/$(basename ${KUBECONFIG}) "${KUBECONFIG}"
-  echo "${KUBECONFIG} from ${TARGET_HOST} has been updated"
-  chmod 600 "${KUBECONFIG}"
-}
-
-function start_user_gosmee() {
-  local service=${1:-"gosmee"}
-  local smeeurl=${2:-}
-  local controllerURL=${3:-}
-  type -p systemctl >/dev/null 2>/dev/null && return
-  [[ -e ${HOME}/.config/systemd/user/${service}.service ]] || {
-    if [[ -n ${smeeurl} ]]; then
-      show_step "Run gosmee manually"
-      echo "gosmee client --saveDir /tmp/replay ${smeeurl} https://${controllerURL}"
-    else
-      echo "Skipping running gosmee: cannot find ${HOME}/.config/systemd/user/${service}.service"
-    fi
-    return
-  }
-  show_step "Running ${service} systemd service locally for user $USER"
-  systemctl --user restart ${service} >/dev/null 2>&1 || true
-  systemctl --user status ${service} -o cat
-  if kubectl get deployment gosmee-ghe -n "${PAC_CONTROLLER_TARGET_NS}" >/dev/null 2>&1; then
-    kubectl scale deployment gosmee-ghe -n "${PAC_CONTROLLER_TARGET_NS}" --replicas=0 >/dev/null || true
-    echo "Deployment $(echo_color red gosmee-ghe) has been scaled down"
-  fi
-}
-
-function install_github_second_ctrl() {
-  local pass_env_file
-  show_step "Installing GHE second controller for github"
-  export PAC_CONTROLLER_LABEL=${PAC_CONTROLLER_LABEL:-"ghe"}
-  export PAC_CONTROLLER_SECRET=${PAC_CONTROLLER_SECRET:-${PAC_CONTROLLER_LABEL}-secret}
-  export PAC_CONTROLLER_CONFIGMAP=${PAC_CONTROLLER_CONFIGMAP:-${PAC_CONTROLLER_LABEL}-configmap}
-  export PAC_CONTROLLER_TARGET_NS="pipelines-as-code"
-  export PAC_CONTROLLER_IMAGE=${PAC_CONTROLLER_IMAGE:-"ko"}
-  local kind_url=http://${DASHBOARD}
-  [[ -z ${PAC_PASS_SECOND_FOLDER} ]] && {
-    echo "You need to set the PAC_PASS_SECOND_FOLDER variable in your ${CONFIG_FILE}"
-    exit 1
-  }
-  local password_store_path=${PASSWORD_STORE_DIR:-$HOME/.password-store}
-  [[ -d ${password_store_path}/${PAC_PASS_SECOND_FOLDER} ]] || {
-    echo "secondSecret ${PAC_PASS_SECOND_FOLDER} does not exist"
-    echo "set environment variable PAC_PASS_SECOND_FOLDER to the correct pass folder"
-    exit 1
-  }
-  echo "Using pass_secret_folder: ${PAC_PASS_SECOND_FOLDER}"
-  PAC_CONTROLLER_SMEE_URL=$(pass show ${pass_env_file} | sed -n '/SMEE_URL/ { s/.*=//;p}')
-  export PAC_CONTROLLER_SMEE_URL
-  hack/second-controller.py ${PAC_CONTROLLER_LABEL} | tee /tmp/.second.controller.debug.yaml | env KO_DOCKER_REPO="${REGISTRY}" ko apply -f- -B --sbom=none "${KO_EXTRA_FLAGS[@]}"
-  kubectl patch configmap -n ${PAC_CONTROLLER_TARGET_NS} -p '{"data":{"application-name": "Pipelines as Code GHE"}}' ${PAC_CONTROLLER_CONFIGMAP}
-  kubectl patch configmap -n ${PAC_CONTROLLER_TARGET_NS} -p "{\"data\":{\"tekton-dashboard-url\": \"${kind_url}\"}}" --type merge ${PAC_CONTROLLER_CONFIGMAP}
-  kubectl patch configmap -n ${PAC_CONTROLLER_TARGET_NS} -p '{"data":{"catalog-2-id": "custom2", "catalog-2-name": "tekton", "catalog-2-url": "https://api.hub.tekton.dev/v1"}}' --type merge ${PAC_CONTROLLER_CONFIGMAP}
-  kubectl delete secret ${PAC_CONTROLLER_SECRET} -n ${PAC_CONTROLLER_TARGET_NS} >/dev/null 2>/dev/null || true
-  kubectl create secret generic ${PAC_CONTROLLER_SECRET} -n ${PAC_CONTROLLER_TARGET_NS} >/dev/null
-  create_paac_secret ${PAC_CONTROLLER_SECRET} ${PAC_PASS_SECOND_FOLDER}
-  local targetUrl=${PAC_CONTROLLER_LABEL}.${DOMAIN_NAME}
-  if [[ ${DOMAIN_NAME} == "local" ]]; then
-    targetUrl=${PAC_CONTROLLER_LABEL}.127.0.0.1.nip.io
-  fi
-  show_step "Creating ingress for ${PAC_CONTROLLER_LABEL} controller"
-  create_ingress ${PAC_CONTROLLER_TARGET_NS} ${PAC_CONTROLLER_LABEL}-controller "${targetUrl}" 8080
-  kubectl delete deployment -n ${PAC_CONTROLLER_TARGET_NS} gosmee-${PAC_CONTROLLER_LABEL} 2>/dev/null || true
-  start_user_gosmee ghe ${PAC_CONTROLLER_SMEE_URL} "${targetUrl}"
-}
-
-function install_custom_crds() {
-  show_step "Installing custom CRDs"
-  [[ -d $HOME/Sync/paac/crds ]] || {
-    echo "Cannot find $HOME/Sync/paac/crds"
-    exit 1
-  }
-  kubectl apply -f $HOME/Sync/paac/crds
-}
-
-function set_namespace() {
-  local ns=${1:-"default"}
-  kubectl config set-context --current --namespace=${ns}
-}
 
 all() {
   sync_kubeconfig
@@ -371,7 +90,7 @@ function help() {
 
   echo -e "${BOLD}program.sh [options]${NO_COLOR}
     "
-  grep -E '^\s*-.*\)\s*#' "$Miself" | sed -e 's/^[ ]*//' -e "s/\(.*\)) # /\1 @ /" | column -t -s $'@'
+  grep -E '^\s*-.*\)\s*#' "$script_path" | sed -e 's/^[ ]*//' -e "s/\(.*\)) # /\1 @ /" | column -t -s $'@'
   echo -e "
 ${BOLD}Author: Chmouel Boudjnah <chmouel@chmouel.com>${NO_COLOR}
     "
@@ -411,7 +130,7 @@ function parse_args() {
   while true; do
     case "$1" in
     -O | --scale-down) # scale down the controller
-      scale_downs_controller=$2
+      SCALE_DOWNS_CONTROLLER=$2
       ;;
     -g | --install-forge) # Install Forgejo
       install_forgejo ${FORGE_HOST}
