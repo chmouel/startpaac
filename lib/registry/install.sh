@@ -30,3 +30,9 @@ for annotations in "nginx.ingress.kubernetes.io/proxy-body-size=0" \
   "kubernetes.io/tls-acme=true"; do
   kubectl annotate ingress -n ${NS} docker-registry "${annotations}"
 done
+
+docker cp ${CERT_DIR}/minica.pem kind-control-plane:/etc/ssl/certs/minica.pem
+docker cp ${CERT_DIR}/minica.pem kind-control-plane:/usr/local/share/ca-certificates/minica.crt
+docker cp ${CERT_DIR}/${REGISTRY}/cert.pem kind-control-plane:/etc/ssl/certs/${REGISTRY}.crt
+docker cp ${CERT_DIR}/${REGISTRY}/key.pem kind-control-plane:/etc/ssl/private/${REGISTRY}.key
+docker exec -it kind-control-plane systemctl restart containerd
