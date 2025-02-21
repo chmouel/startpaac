@@ -29,6 +29,7 @@ your path).
 ## Configuration
 
 Create a configuration file at `$HOME/.config/startpaac/config` with the following content:
+(this will be auto created by paac if you don't have one)
 
 ```sh
 # PAC_DIR is the path to the pipelines-as-code directory, it will try to detect it otherwise
@@ -82,11 +83,16 @@ Create a configuration file at `$HOME/.config/startpaac/config` with the followi
 # PAC_DIR=$GOPATH/src/github.com/openshift-pipelines/pac/main
 ```
 
+You can have an alternative config file with the `STARTPAAC_CONFIG_FILE`
+environment variable.
+
 ## Secrets Management
 
 ### Using `pass`
 
-If you prefer to manage your secrets using `pass`, set the `PAC_PASS_SECRET_FOLDER` variable in your configuration file to the path of your secrets folder in `pass`. The folder should contain the following files:
+If you prefer to manage your secrets using `pass`, set the
+`PAC_PASS_SECRET_FOLDER` variable in your configuration file to the path of
+your secrets folder in `pass`. The folder should contain the following files:
 
 - `github-application-id`
 - `github-private-key`
@@ -95,7 +101,7 @@ If you prefer to manage your secrets using `pass`, set the `PAC_PASS_SECRET_FOLD
 
 Example structure:
 
-```
+```console
 github/apps/my-app
 ├── github-application-id
 ├── github-private-key
@@ -105,11 +111,14 @@ github/apps/my-app
 
 ### Using Plain Text
 
-Alternatively, you can store your secrets in plain text files. Set the `PAC_SECRET_FOLDER` variable in your configuration file to the path of your secrets folder. The folder should have the same structure as the `pass` folder, but the files should be in plain text.
+Alternatively, you can store your secrets in plain text files. Set the
+`PAC_SECRET_FOLDER` variable in your configuration file to the path of your
+secrets folder. The folder should have the same structure as the `pass` folder,
+but the files should be in plain text.
 
 Example structure:
 
-```
+```console
 ~/path/to/secrets
 ├── github-application-id
 ├── github-private-key
@@ -144,7 +153,7 @@ you don't want confirmation just use the `-a` option.
 - `--install-dashboard`     Install Tekton dashboard
 - `--install-tekton`        Install Tekton
 - `--install-custom-crds`   Install custom CRDs
-- `--second-secret=SECRET`  Pass name for the second controller secret, default: ${secondSecret}
+- `--second-secret=SECRET`  Pass name for the second controller secret
 - `--stop-kind`             Stop Kind
 
 ## Examples
@@ -197,11 +206,17 @@ you don't want confirmation just use the `-a` option.
 ./startpaac --start-user-gosmee
 ```
 
+it will try to start gosmee for the user if you have a systemd user one, or
+give you the command line to start it.
+
 ### Deploy Second Controller for GitHub
 
 ```sh
 ./startpaac --github-second-ctrl
 ```
+
+you need the `PAC_PASS_SECOND_FOLDER` which is the same
+`PAC_PASS_SECRET_FOLDER` but for a second controller to use.
 
 ## ZSH Completion
 

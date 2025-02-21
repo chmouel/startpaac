@@ -1,8 +1,8 @@
-# shellcheck shell=bash
+# shellcheck shell=bash disable=SC1090
 CONFIG_FILE=${STARTPAAC_CONFIG_FILE:-$HOME/.config/startpaac/config}
 
 if [[ -e "${CONFIG_FILE}" ]]; then
-  source "${CONFIG_FILE}" # shellcheck disable=SC1090
+  source "${CONFIG_FILE}"
 else
   mkdir -p $(dirname $CONFIG_FILE)
   echo "Creating sample $HOME/.config/startpaac/config read the comment in the file and edit it with your configuration"
