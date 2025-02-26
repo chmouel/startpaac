@@ -11,6 +11,7 @@ REGISTRY=${1}
   echo "Usage: $0 <registry>"
   exit 1
 }
+TARGET_HOST=${2:-local}
 
 if [[ ${1:-""} == "-r" ]]; then
   kubectl delete ns ${NS} || true
@@ -31,8 +32,13 @@ for annotations in "nginx.ingress.kubernetes.io/proxy-body-size=0" \
   kubectl annotate ingress -n ${NS} docker-registry "${annotations}"
 done
 
-docker cp ${CERT_DIR}/minica.pem kind-control-plane:/etc/ssl/certs/minica.pem
-docker cp ${CERT_DIR}/minica.pem kind-control-plane:/usr/local/share/ca-certificates/minica.crt
-docker cp ${CERT_DIR}/${REGISTRY}/cert.pem kind-control-plane:/etc/ssl/certs/${REGISTRY}.crt
-docker cp ${CERT_DIR}/${REGISTRY}/key.pem kind-control-plane:/etc/ssl/private/${REGISTRY}.key
-docker exec -it kind-control-plane systemctl restart containerd
+prefix=()
+if [[ ${TARGET_HOST} != local ]]; then
+  scp -r ${CERT_DIR} ${TARGET_HOST}:$(basename ${CERT_DIR})
+  prefix=(ssh -q "${TARGET_HOST}" -t)
+fi
+
+"${prefix[@]}" docker cp ${CERT_DIR}/minica.pem kind-control-plane:/etc/ssl/certs/minica.pem
+"${prefix[@]}" docker cp ${CERT_DIR}/${REGISTRY}/cert.pem kind-control-plane:/etc/ssl/certs/${REGISTRY}.crt
+"${prefix[@]}" docker cp ${CERT_DIR}/${REGISTRY}/key.pem kind-control-plane:/etc/ssl/private/${REGISTRY}.key
+"${prefix[@]}" docker exec -it kind-control-plane systemctl restart containerd

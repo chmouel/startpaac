@@ -127,7 +127,7 @@ install_nginx() {
 
 install_registry() {
   show_step "Installing registry"
-  "${SP}"/lib/registry/install.sh ${REGISTRY}
+  "${SP}"/lib/registry/install.sh ${REGISTRY} ${TARGET_HOST}
 }
 
 install_tekton() {
