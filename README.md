@@ -51,7 +51,7 @@ for i in github-application-id github-private-key smee webhook.secret;do
 fi
 ```
 
-execute :
+execute to deploy the kind cluster, the registry, nginx, paac, gitea etc..:
 
 ```shell
 ./startpaac -a
