@@ -16,6 +16,7 @@ Components that get installed are:
 
 ## Prerequisites
 
+- [Docker]() - We only tested with docker currently, it may works with podman but i haven't tested it yet
 - [Kind](https://kind.sigs.k8s.io/) - Kubernetes in Docker
 - [Helm](https://helm.sh/) - Kubernetes package manager
 - [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/) - Kubernetes command-line tool
