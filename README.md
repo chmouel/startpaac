@@ -26,13 +26,66 @@ Components that get installed are:
 [sed](https://formulae.brew.sh/formula/gnu-sed#default) and configure them in
 your path).
 
+## Getting Started
+
+execute or adapt the following, adjust the path of the PAC folder where you
+have checked out pipelines-as-code:
+
+```shell
+mkdir -p $HOME/.config/startpaac
+cat <<EOF > $HOME/.config/startpaac/config
+TARGET_HOST=local
+PAC_DIR=~/go/src/github.com/openshift-pipelines/pipelines-as-code
+PAC_SECRET_FOLDER=~/secrets
+EOF
+```
+
+Create your GitHub application and grab all the info needed and put them in
+each secret file for example:
+
+```shell
+mkdir -p ~/secrets
+for i in github-application-id github-private-key smee webhook.secret;do
+  echo "Editing $i file"
+  ${EDITOR:-vi} ~/secrets/$i
+fi
+```
+
+execute :
+
+```shell
+./startpaac -a
+```
+
+if you need to deploy a change  you made to your code to the local registry you
+do:
+
+```bash
+startpaac -p 
+```
+
+this has redeployed everything, if you only want to redeploy the controller you can do:
+
+```bash
+startpaac -c controller # same goes for watcher or webhook
+```
+
+if you want to spin down the kind cluster you can do:
+
+```bash
+startpaac --stop-kind
+```
+
 ## Configuration
 
 Create a configuration file at `$HOME/.config/startpaac/config` with the following content:
 (this will be auto created by paac if you don't have one)
 
-```sh
-# PAC_DIR is the path to the pipelines-as-code directory, it will try to detect it otherwise
+## Full Configuration
+
+```bash
+# PAC_DIR is the path to the pipelines-as-code directory, it will try to detect
+# it otherwise
 # PAC_DIR=~/path/to/pipelines-as-code
 #
 # PAC_PASS_SECRET_FOLDER is the path to a folder in https://passwordstore.org/

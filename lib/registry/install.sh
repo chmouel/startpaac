@@ -32,9 +32,10 @@ for annotations in "nginx.ingress.kubernetes.io/proxy-body-size=0" \
   kubectl annotate ingress -n ${NS} docker-registry "${annotations}"
 done
 
+show_step "Copying self certs on the control plane"
 prefix=()
 if [[ ${TARGET_HOST} != local ]]; then
-  scp -r ${CERT_DIR} ${TARGET_HOST}:$(basename ${CERT_DIR})
+  scp -qr ${CERT_DIR} ${TARGET_HOST}:$(basename ${CERT_DIR})
   prefix=(ssh -q "${TARGET_HOST}" -t)
 fi
 

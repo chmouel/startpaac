@@ -314,7 +314,7 @@ function install_github_second_ctrl() {
     exit 1
   }
   echo "Using pass_secret_folder: ${PAC_PASS_SECOND_FOLDER}"
-  PAC_CONTROLLER_SMEE_URL=$(pass show ${pass_env_file} | sed -n '/SMEE_URL/ { s/.*=//;p}')
+  PAC_CONTROLLER_SMEE_URL=$(pass show ${PAC_PASS_SECOND_FOLDER} | sed -n '/SMEE_URL/ { s/.*=//;p}')
   export PAC_CONTROLLER_SMEE_URL
   hack/second-controller.py ${PAC_CONTROLLER_LABEL} | tee /tmp/.second.controller.debug.yaml | env KO_DOCKER_REPO="${REGISTRY}" ko apply -f- -B --sbom=none "${KO_EXTRA_FLAGS[@]}"
   kubectl patch configmap -n ${PAC_CONTROLLER_TARGET_NS} -p '{"data":{"application-name": "Pipelines as Code GHE"}}' ${PAC_CONTROLLER_CONFIGMAP}
