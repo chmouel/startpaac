@@ -274,7 +274,8 @@ you need the `PAC_PASS_SECOND_FOLDER` which is the same
 
 ## ZSH Completion
 
-There is a [ZSH completion script](./_startpaac) that can get installed in your
+There is a [ZSH completion script](./misc/_startpaac) that can get installed in your
+
 path for completion.
 
 ## Author
