@@ -92,11 +92,11 @@ cache_yaml_file() {
 }
 
 check_kind() {
-  output=$(ssh "${TARGET_HOST}" which kind || true)
-  [[ "${output}" == *"not found" ]] && {
+  output=$(ssh -q "${TARGET_HOST}" which kind || true)
+  if [[ "${output}" == *"not found" ]]; then
     echo "Kind is not installed on ${TARGET_HOST}"
     exit 1
-  } || true
+  fi
 }
 
 install_kind() {
@@ -295,7 +295,6 @@ function start_user_gosmee() {
 }
 
 function install_github_second_ctrl() {
-  local pass_env_file
   show_step "Installing GHE second controller for github"
   export PAC_CONTROLLER_LABEL=${PAC_CONTROLLER_LABEL:-"ghe"}
   export PAC_CONTROLLER_SECRET=${PAC_CONTROLLER_SECRET:-${PAC_CONTROLLER_LABEL}-secret}
