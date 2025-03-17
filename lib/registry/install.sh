@@ -35,8 +35,10 @@ done
 show_step "Copying self certs on the control plane"
 prefix=()
 if [[ ${TARGET_HOST} != local ]]; then
-  scp -qr ${CERT_DIR} ${TARGET_HOST}:$(basename ${CERT_DIR})
+  generate_certs_minica ${REGISTRY}
+  scp -qr ${CERT_DIR} ${TARGET_HOST}:/tmp/$(basename ${CERT_DIR})
   prefix=(ssh -q "${TARGET_HOST}" -t)
+  CERT_DIR=/tmp/$(basename ${CERT_DIR})
 fi
 
 "${prefix[@]}" docker cp ${CERT_DIR}/minica.pem kind-control-plane:/etc/ssl/certs/minica.pem
