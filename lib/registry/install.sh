@@ -40,8 +40,9 @@ if [[ ${TARGET_HOST} != local ]]; then
   prefix=(ssh -q "${TARGET_HOST}" -t)
   CERT_DIR=/tmp/$(basename ${CERT_DIR})
 fi
+set -x
 
 "${prefix[@]}" docker cp ${CERT_DIR}/minica.pem kind-control-plane:/etc/ssl/certs/minica.pem
 "${prefix[@]}" docker cp ${CERT_DIR}/${REGISTRY}/cert.pem kind-control-plane:/etc/ssl/certs/${REGISTRY}.crt
 "${prefix[@]}" docker cp ${CERT_DIR}/${REGISTRY}/key.pem kind-control-plane:/etc/ssl/private/${REGISTRY}.key
-"${prefix[@]}" docker exec -it kind-control-plane systemctl restart containerd
+"${prefix[@]}" docker exec kind-control-plane systemctl restart containerd
