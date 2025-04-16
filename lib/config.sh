@@ -5,7 +5,7 @@ if [[ -e "${CONFIG_FILE}" ]]; then
   source "${CONFIG_FILE}"
 else
   mkdir -p $(dirname $CONFIG_FILE)
-  echo "Creating sample $HOME/.config/startpaac/config read the comment in the file and edit it with your configuration"
+  echo "Creating a sample $HOME/.config/startpaac/config file"
   cat <<EOF >"${CONFIG_FILE}"
 # PAC_DIR is the path to the pipelines-as-code directory, it will try to detect
 # it otherwise
@@ -63,7 +63,22 @@ else
 # TARGET_BIND_IP=192.168.1.5
 # DASHBOARD=dashboard.\${DOMAIN_NAME}
 # PAC_DIR=\$GOPATH/src/github.com/openshift-pipelines/pac/main
+
+# We are defaulting to a local install
+PAC_DIR=~/go/src/github.com/openshift-pipelines/pac/main
+PAC_SECRET_FOLDER=~/.local/share/startpaac/secrets
+TARGET_HOST=local
 EOF
+
+  if [[ ! -d ~/.local/share/startpaac ]]; then
+    mkdir -p ~/.local/share/startpaac/secrets
+    for i in github-application-id github-private-key smee-url webhook.secret; do
+      touch ~/.local/share/startpaac/secrets/$i
+    done
+  fi
+
+  echo "Adjust your PAC_DIR to where pipelines-as-code is checked out"
+  echo "And go to the directory ~/.local/share/startpaac/secrets and add the secrets into the files in there"
   exit 1
 fi
 set +x
