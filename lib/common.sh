@@ -157,7 +157,6 @@ check_tools() {
     "docker"
     "kind"
     "ko"
-    "pass"
     "base64"
     "ssh"
     "scp"
@@ -171,5 +170,12 @@ check_tools() {
       return 1
     fi
   done
+  if [[ -n ${PAC_PASS_SECRET_FOLDER} ]]; then
+    if ! command -v pass &>/dev/null; then
+      echo "Error: pass is not installed or not in PATH and you have the PAC_PASS_SECRET_FOLDER variable set."
+      echo "Use PAC_SECRET_FOLDER instead if you want a folder instead of pass."
+      return 1
+    fi
+  fi
   return 0
 }
