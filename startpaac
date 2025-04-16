@@ -64,6 +64,12 @@ if [[ -z ${TARGET_HOST} ]] || [[ -z ${DOMAIN_NAME} ]] || [[ -z ${REGISTRY} ]] ||
 fi
 
 show_config() {
+  local smee_url
+  if [[ -n ${PAC_PASS_SECRET_FOLDER:-""} ]]; then
+    smee_url=$(pass show ${PAC_PASS_SECRET_FOLDER}/smee)
+  elif [[ -n ${PAC_SECRET_FOLDER:-""} ]]; then
+    smee_url=$(cat ${PAC_SECRET_FOLDER}/smee)
+  fi
   cat <<EOF
 Using configuration on ${TARGET_HOST}:
 
@@ -73,8 +79,8 @@ PAAC: https://${PAAC}
 REGISTRY: https://${REGISTRY}
 FORGE_HOST: https://${FORGE_HOST}
 DASHBOARD: https://${DASHBOARD}
-GOSMEE:
- gosmee client --saveDir /tmp/replay $(pass show ${PAC_PASS_SECRET_FOLDER}/smee) https://${PAAC}
+  GOSMEE:
+  gosmee client --saveDir /tmp/replay ${smee_url} https://${PAAC}
 EOF
 }
 
