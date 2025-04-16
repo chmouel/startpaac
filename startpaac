@@ -338,13 +338,13 @@ function install_github_second_ctrl() {
   start_user_gosmee ghe ${PAC_CONTROLLER_SMEE_URL} "${targetUrl}"
 }
 
-function install_custom_crds() {
-  show_step "Installing custom CRDs"
-  [[ -d $HOME/Sync/paac/crds ]] || {
-    echo "Cannot find $HOME/Sync/paac/crds"
+function install_custom_objects() {
+  show_step "Installing custom Objects"
+  [[ -d ${INSTALL_CUSTOM_OBJECT} ]] || {
+    echo "Cannot find ${INSTALL_CUSTOM_OBJECT} directory"
     exit 1
   }
-  kubectl apply -f $HOME/Sync/paac/crds
+  kubectl apply -f ${INSTALL_CUSTOM_OBJECT}
 }
 
 function set_namespace() {
@@ -361,7 +361,7 @@ all() {
   install_pac
   configure_pac
   [[ -z ${INSTALL_GITHUB_SECOND_CTRL} && ${INSTALL_FORGE} == true ]] && install_forgejo ${FORGE_HOST}
-  install_custom_crds
+  [[ -n ${INSTALL_CUSTOM_OBJECT:-} ]] && install_custom_objects
 
   start_user_gosmee gosmee
 

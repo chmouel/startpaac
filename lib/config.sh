@@ -7,7 +7,9 @@ else
   mkdir -p $(dirname $CONFIG_FILE)
   echo "Creating sample $HOME/.config/startpaac/config read the comment in the file and edit it with your configuration"
   cat <<EOF >"${CONFIG_FILE}"
-# PAC_DIR is the path to the pipelines-as-code directory, it will try to detect it otherwise
+# PAC_DIR is the path to the pipelines-as-code directory, it will try to detect
+# it otherwise
+#
 # PAC_DIR=~/path/to/pipelines-as-code
 #
 # PAC_PASS_SECRET_FOLDER is the path to a folder in https://passwordstore.org/
@@ -35,7 +37,11 @@ else
 # KO_EXTRA_FLAGS are the extra flags to pass to ko
 #
 # KO_EXTRA_FLAGS=() # extra ko flags for example --platform linux/arm64 --insecure-registry
+#
+# Install custom objects in the kind cluster after the cluster is created
+# INSTALL_CUSTOM_OBJECT=~/path/to/dir/
 ## Hosts (not needed if TARGET_HOST is set to local)
+#
 # setup a wildcard dns *.lan.mydomain.com to go to your TARGET_HOST vm
 # tips: if you don't want to install a dns server you can simply use
 # https://nextdns.io to let you create wildcard dns for your local network.
@@ -47,6 +53,7 @@ else
 # DASHBOARD=dashboard.\${DASHBOARD}
 #
 # Example:
+#
 # TARGET_HOST=civuole.lan
 # KO_EXTRA_FLAGS=(--insecure-registry --platform linux/arm64)
 # DOMAIN_NAME=vm.lan
