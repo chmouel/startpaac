@@ -128,8 +128,10 @@ generate_certs_minica() {
   local domain="$1"
   [[ -e ${CERT_DIR}/${domain}/cert.pem ]] && return 0
   mkdir -p ${CERT_DIR}
-  pass show minica/cert >${CERT_DIR}/minica.pem
-  pass show minica/key >${CERT_DIR}/minica-key.pem
+  if command -v pass >/dev/null 2>&1 && pass ls minica >/dev/null 2>&1; then
+    pass show minica/cert >${CERT_DIR}/minica.pem
+    pass show minica/key >${CERT_DIR}/minica-key.pem
+  fi
   (cd ${CERT_DIR} && minica -domains ${domain})
 }
 
