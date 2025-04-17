@@ -40,9 +40,16 @@ if [[ ${TARGET_HOST} != local ]]; then
   prefix=(ssh -q "${TARGET_HOST}" -t)
   CERT_DIR=/tmp/$(basename ${CERT_DIR})
 fi
-set -x
 
+show_step "Copying self certs to the control plane"
 "${prefix[@]}" docker cp ${CERT_DIR}/minica.pem kind-control-plane:/etc/ssl/certs/minica.pem
 "${prefix[@]}" docker cp ${CERT_DIR}/${REGISTRY}/cert.pem kind-control-plane:/etc/ssl/certs/${REGISTRY}.crt
 "${prefix[@]}" docker cp ${CERT_DIR}/${REGISTRY}/key.pem kind-control-plane:/etc/ssl/private/${REGISTRY}.key
 "${prefix[@]}" docker exec kind-control-plane systemctl restart containerd
+
+show_step "Waiting for registry ${REGISTRY} to be ready..."
+until curl --fail -k -s "https://${REGISTRY}/v2/"; do
+  echo -n "."
+  sleep 5
+done
+echo "Registry ${REGISTRY} is up and running."
