@@ -72,7 +72,7 @@ EOF
 
   if [[ ! -d ~/.local/share/startpaac ]]; then
     mkdir -p ~/.local/share/startpaac/secrets
-    for i in github-application-id github-private-key smee-url webhook.secret; do
+    for i in github-application-id github-private-key smee webhook.secret; do
       touch ~/.local/share/startpaac/secrets/$i
     done
   fi
