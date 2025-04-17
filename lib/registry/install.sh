@@ -48,8 +48,9 @@ show_step "Copying self certs to the control plane"
 "${prefix[@]}" docker exec kind-control-plane systemctl restart containerd
 
 show_step "Waiting for registry ${REGISTRY} to be ready..."
-until curl --fail -k -s "https://${REGISTRY}/v2/"; do
-  echo -n "."
+until curl -o/dev/null --fail -k -s "https://${REGISTRY}/v2/"; do
+  echo_color -n brightwhite "."
   sleep 5
 done
+echo ""
 echo "Registry ${REGISTRY} is up and running."
