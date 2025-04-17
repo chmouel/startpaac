@@ -195,10 +195,12 @@ install_pac() {
 create_pac_secret() {
   folder=$1
   shift
+  secret_name=$1
+  shift
   read -a read_method <<<"$@"
 
-  kubectl delete secret pipelines-as-code-secret -n pipelines-as-code 2>/dev/null || true
-  kubectl create secret generic pipelines-as-code-secret -n pipelines-as-code
+  kubectl delete secret ${secret_name} -n pipelines-as-code 2>/dev/null || true
+  kubectl create secret generic ${secret_name} -n pipelines-as-code
   for passk in github-application-id github-private-key webhook.secret; do
     if [[ ${passk} == *-key ]]; then
       b64d=$("${read_method[@]}" "${folder}"/${passk} | base64 -w0)
@@ -211,6 +213,7 @@ create_pac_secret() {
 }
 
 configure_pac() {
+  local pac_controller_secret=${PAC_CONTROLLER_SECRET:-pipelines-as-code-secret}
   show_step "Configuring PAC"
 
   create_ingress pipelines-as-code pipelines-as-code-controller "${PAAC}" 8080
@@ -225,10 +228,10 @@ configure_pac() {
 
   if [[ -n ${PAC_PASS_SECRET_FOLDER:-""} ]]; then
     echo "Installing PAC secrets from pass folder: ${PAC_PASS_SECRET_FOLDER}"
-    create_pac_secret ${PAC_PASS_SECRET_FOLDER} pass show
+    create_pac_secret ${PAC_PASS_SECRET_FOLDER} ${pac_controller_secret} pass show
   elif [[ -n ${PAC_SECRET_FOLDER:-""} ]]; then
     echo "Installing PAC secrets from plain text folder: ${PAC_SECRET_FOLDER}"
-    create_pac_secret ${PAC_SECRET_FOLDER} cat
+    create_pac_secret ${PAC_SECRET_FOLDER} ${pac_controller_secret} cat
   else
     cat <<EOF
   **No secret has been installed**
@@ -245,23 +248,6 @@ configure_pac() {
 EOF
     kubectl delete secret -n pipelines-as-code pipelines-as-code-secret >/dev/null 2>/dev/null || true
   fi
-}
-
-create_paac_secret() {
-  local secretname=$1
-  local passfolder=$2
-  echo "Installing PAC secrets"
-  kubectl delete secret ${secretname} -n pipelines-as-code 2>/dev/null || true
-  kubectl create secret generic ${secretname} -n pipelines-as-code
-  for passk in github-application-id github-private-key webhook.secret; do
-    if [[ ${passk} == *-key ]]; then
-      b64d=$(pass show "${passfolder}"/${passk} | base64 -w0)
-    else
-      b64d=$(echo -n $(pass show "${passfolder}"/${passk}) | base64 -w0)
-    fi
-    kubectl patch secret -n pipelines-as-code -p "{\"data\":{\"${passk}\": \"${b64d}\"}}" --type merge ${secretname} >/dev/null
-  done
-
 }
 
 function install_forgejo() {
@@ -303,23 +289,33 @@ function start_user_gosmee() {
 function install_github_second_ctrl() {
   show_step "Installing GHE second controller for github"
   export PAC_CONTROLLER_LABEL=${PAC_CONTROLLER_LABEL:-"ghe"}
-  export PAC_CONTROLLER_SECRET=${PAC_CONTROLLER_SECRET:-${PAC_CONTROLLER_LABEL}-secret}
+  export PAC_CONTROLLER_SECRET=${PAC_SECOND_CONTROLLER_SECRET:-${PAC_CONTROLLER_LABEL}-secret}
   export PAC_CONTROLLER_CONFIGMAP=${PAC_CONTROLLER_CONFIGMAP:-${PAC_CONTROLLER_LABEL}-configmap}
   export PAC_CONTROLLER_TARGET_NS="pipelines-as-code"
   export PAC_CONTROLLER_IMAGE=${PAC_CONTROLLER_IMAGE:-"ko"}
   local kind_url=http://${DASHBOARD}
-  [[ -z ${PAC_PASS_SECOND_FOLDER} ]] && {
-    echo "You need to set the PAC_PASS_SECOND_FOLDER variable in your ${CONFIG_FILE}"
+  [[ -z ${PAC_PASS_SECOND_FOLDER:-} && -z ${PAC_SECOND_SECRET_FOLDER:-} ]] && {
+    echo "You need to set the PAC_PASS_SECOND_FOLDER or PAC_SECOND_SECRET_FOLDER variables in your ${CONFIG_FILE}"
     exit 1
   }
-  local password_store_path=${PASSWORD_STORE_DIR:-$HOME/.password-store}
-  [[ -d ${password_store_path}/${PAC_PASS_SECOND_FOLDER} ]] || {
-    echo "secondSecret ${PAC_PASS_SECOND_FOLDER} does not exist"
-    echo "set environment variable PAC_PASS_SECOND_FOLDER to the correct pass folder"
-    exit 1
-  }
-  echo "Using pass_secret_folder: ${PAC_PASS_SECOND_FOLDER}"
-  PAC_CONTROLLER_SMEE_URL=$(pass show ${PAC_PASS_SECOND_FOLDER} | sed -n '/SMEE_URL/ { s/.*=//;p}')
+  if [[ -n ${PAC_PASS_SECOND_FOLDER} ]];then
+    local password_store_path=${PASSWORD_STORE_DIR:-$HOME/.password-store}
+    [[ -d ${password_store_path}/${PAC_PASS_SECOND_FOLDER} ]] || {
+        echo "secondSecret ${PAC_PASS_SECOND_FOLDER} does not exist"
+        echo "set environment variable PAC_PASS_SECOND_FOLDER to the correct pass folder"
+        exit 1
+    }
+    echo "Using pass_secret_folder: ${PAC_PASS_SECOND_FOLDER}"
+    PAC_CONTROLLER_SMEE_URL=$(pass show ${PAC_PASS_SECOND_FOLDER} | sed -n '/SMEE_URL/ { s/.*=//;p}')
+  elif [[ -n ${PAC_SECOND_SECRET_FOLDER} ]];then 
+      if [[ ! -d ${PAC_SECOND_SECRET_FOLDER} ]]; then
+        echo "folder for second secret ${PAC_SECOND_SECRET_FOLDER} does not exist"
+        echo "set environment variable PAC_SECOND_SECRET_FOLDER to the correct folder with all your environment secrets"
+        exit 1
+      fi
+    echo "Using secret_folder: ${PAC_SECOND_SECRET_FOLDER}"
+    PAC_CONTROLLER_SMEE_URL=$(cat ${PAC_SECOND_SECRET_FOLDER}/smee)
+  fi
   export PAC_CONTROLLER_SMEE_URL
   hack/second-controller.py ${PAC_CONTROLLER_LABEL} | tee /tmp/.second.controller.debug.yaml | env KO_DOCKER_REPO="${REGISTRY}" ko apply -f- -B --sbom=none "${KO_EXTRA_FLAGS[@]}"
   kubectl patch configmap -n ${PAC_CONTROLLER_TARGET_NS} -p '{"data":{"application-name": "Pipelines as Code GHE"}}' ${PAC_CONTROLLER_CONFIGMAP}
@@ -327,7 +323,26 @@ function install_github_second_ctrl() {
   kubectl patch configmap -n ${PAC_CONTROLLER_TARGET_NS} -p '{"data":{"catalog-2-id": "custom2", "catalog-2-name": "tekton", "catalog-2-url": "https://api.hub.tekton.dev/v1"}}' --type merge ${PAC_CONTROLLER_CONFIGMAP}
   kubectl delete secret ${PAC_CONTROLLER_SECRET} -n ${PAC_CONTROLLER_TARGET_NS} >/dev/null 2>/dev/null || true
   kubectl create secret generic ${PAC_CONTROLLER_SECRET} -n ${PAC_CONTROLLER_TARGET_NS} >/dev/null
-  create_paac_secret ${PAC_CONTROLLER_SECRET} ${PAC_PASS_SECOND_FOLDER}
+  if [[ -n ${PAC_PASS_SECOND_FOLDER} ]];then
+    echo "Installing PAC secrets from pass folder: ${PAC_PASS_SECRET_FOLDER}"
+    create_pac_secret ${PAC_PASS_SECOND_FOLDER} ${PAC_CONTROLLER_SECRET} pass show
+  elif [[ -n ${PAC_SECOND_SECRET_FOLDER} ]];then
+    echo "Installing PAC secrets from plain text folder: ${PAC_SECOND_SECRET_FOLDER}"
+    create_pac_secret ${PAC_SECOND_SECRET_FOLDER} ${PAC_CONTROLLER_SECRET} cat
+  else
+    cat <<EOF
+No secret has been installed.
+
+You need to either create a pass https://www.passwordstore.org/ folder with github-application-id
+github-private-key webhook.secret information in there and export the PAC_PASS_SECOND_FOLDER variable
+to that folder
+
+Or have a plain text folder with the same structure and export the PAC_SECOND_SECRET_FOLDER variable"
+
+Or have nothing and install the secrets manually after running the startpaac script.
+EOF
+  fi
+
   local targetUrl=${PAC_CONTROLLER_LABEL}.${DOMAIN_NAME}
   if [[ ${DOMAIN_NAME} == "local" ]]; then
     targetUrl=${PAC_CONTROLLER_LABEL}.127.0.0.1.nip.io
