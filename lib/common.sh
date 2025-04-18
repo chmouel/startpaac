@@ -95,10 +95,10 @@ create_ingress() {
   local host=$3
   local targetPort=$4
   local sec_name=${component}-tls
-  create_tls_secret ${host} ${sec_name} ${namespace}
+  create_tls_secret "${host}" "${sec_name}" "${namespace}"
 
-  echo "Creating ingress on $(echo_color brightgreen https://${host}) for ${component}:${targetPort} in ${namespace}"
-  cat <<EOF | kubectl apply -f -
+  echo "Creating ingress on $(echo_color brightgreen "https://${host}") for ${component}:${targetPort} in ${namespace}"
+  kubectl apply -f - <<EOF
 ---
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -139,16 +139,24 @@ wait_for_it() {
   local namespace=$1
   local component=$2
   echo_color -n brightgreen "Waiting for ${component} to be ready in ${namespace}: "
-  i=0
+  local i=0
+  local max_wait=120 # seconds
+  local interval=2   # seconds
+  local max_retries=$((max_wait / interval))
   while true; do
-    [[ ${i} == 120 ]] && exit 1
+    if [[ ${i} -ge ${max_retries} ]]; then
+        echo_color brightred " FAILED (timeout after ${max_wait}s)"
+        return 1
+    fi
+    local ep
     ep=$(kubectl get ep -n "${namespace}" "${component}" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null || true)
     [[ -n ${ep} ]] && break
-    sleep 2
+    sleep ${interval}
     echo_color -n brightwhite "."
     i=$((i + 1))
   done
-  echo_color brightgreen "OK"
+  echo_color brightgreen " OK"
+  return 0
 }
 
 check_tools() {

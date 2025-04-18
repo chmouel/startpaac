@@ -298,21 +298,21 @@ function install_github_second_ctrl() {
     echo "You need to set the PAC_PASS_SECOND_FOLDER or PAC_SECOND_SECRET_FOLDER variables in your ${CONFIG_FILE}"
     exit 1
   }
-  if [[ -n ${PAC_PASS_SECOND_FOLDER} ]];then
+  if [[ -n ${PAC_PASS_SECOND_FOLDER} ]]; then
     local password_store_path=${PASSWORD_STORE_DIR:-$HOME/.password-store}
     [[ -d ${password_store_path}/${PAC_PASS_SECOND_FOLDER} ]] || {
-        echo "secondSecret ${PAC_PASS_SECOND_FOLDER} does not exist"
-        echo "set environment variable PAC_PASS_SECOND_FOLDER to the correct pass folder"
-        exit 1
+      echo "secondSecret ${PAC_PASS_SECOND_FOLDER} does not exist"
+      echo "set environment variable PAC_PASS_SECOND_FOLDER to the correct pass folder"
+      exit 1
     }
     echo "Using pass_secret_folder: ${PAC_PASS_SECOND_FOLDER}"
     PAC_CONTROLLER_SMEE_URL=$(pass show ${PAC_PASS_SECOND_FOLDER} | sed -n '/SMEE_URL/ { s/.*=//;p}')
-  elif [[ -n ${PAC_SECOND_SECRET_FOLDER} ]];then 
-      if [[ ! -d ${PAC_SECOND_SECRET_FOLDER} ]]; then
-        echo "folder for second secret ${PAC_SECOND_SECRET_FOLDER} does not exist"
-        echo "set environment variable PAC_SECOND_SECRET_FOLDER to the correct folder with all your environment secrets"
-        exit 1
-      fi
+  elif [[ -n ${PAC_SECOND_SECRET_FOLDER} ]]; then
+    if [[ ! -d ${PAC_SECOND_SECRET_FOLDER} ]]; then
+      echo "folder for second secret ${PAC_SECOND_SECRET_FOLDER} does not exist"
+      echo "set environment variable PAC_SECOND_SECRET_FOLDER to the correct folder with all your environment secrets"
+      exit 1
+    fi
     echo "Using secret_folder: ${PAC_SECOND_SECRET_FOLDER}"
     PAC_CONTROLLER_SMEE_URL=$(cat ${PAC_SECOND_SECRET_FOLDER}/smee)
   fi
@@ -323,10 +323,10 @@ function install_github_second_ctrl() {
   kubectl patch configmap -n ${PAC_CONTROLLER_TARGET_NS} -p '{"data":{"catalog-2-id": "custom2", "catalog-2-name": "tekton", "catalog-2-url": "https://api.hub.tekton.dev/v1"}}' --type merge ${PAC_CONTROLLER_CONFIGMAP}
   kubectl delete secret ${PAC_CONTROLLER_SECRET} -n ${PAC_CONTROLLER_TARGET_NS} >/dev/null 2>/dev/null || true
   kubectl create secret generic ${PAC_CONTROLLER_SECRET} -n ${PAC_CONTROLLER_TARGET_NS} >/dev/null
-  if [[ -n ${PAC_PASS_SECOND_FOLDER} ]];then
+  if [[ -n ${PAC_PASS_SECOND_FOLDER} ]]; then
     echo "Installing PAC secrets from pass folder: ${PAC_PASS_SECRET_FOLDER}"
     create_pac_secret ${PAC_PASS_SECOND_FOLDER} ${PAC_CONTROLLER_SECRET} pass show
-  elif [[ -n ${PAC_SECOND_SECRET_FOLDER} ]];then
+  elif [[ -n ${PAC_SECOND_SECRET_FOLDER} ]]; then
     echo "Installing PAC secrets from plain text folder: ${PAC_SECOND_SECRET_FOLDER}"
     create_pac_secret ${PAC_SECOND_SECRET_FOLDER} ${PAC_CONTROLLER_SECRET} cat
   else

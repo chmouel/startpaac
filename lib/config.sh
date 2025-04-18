@@ -1,5 +1,6 @@
 # shellcheck shell=bash disable=SC1090
 CONFIG_FILE=${STARTPAAC_CONFIG_FILE:-$HOME/.config/startpaac/config}
+echo "Loading configuration from ${CONFIG_FILE}"
 
 if [[ -e "${CONFIG_FILE}" ]]; then
   source "${CONFIG_FILE}"
@@ -81,4 +82,3 @@ EOF
   echo "And go to the directory ~/.local/share/startpaac/secrets and add the secrets into the files in there"
   exit 1
 fi
-set +x
