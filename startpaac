@@ -373,7 +373,7 @@ all() {
   install_dashboard
   install_pac
   configure_pac
-  [[ -z ${INSTALL_GITHUB_SECOND_CTRL} && ${INSTALL_FORGE} == true ]] && install_forgejo ${FORGE_HOST}
+  [[ ${INSTALL_FORGE} == true ]] && install_forgejo ${FORGE_HOST}
   [[ -n ${INSTALL_CUSTOM_OBJECT:-} ]] && install_custom_objects
 
   start_user_gosmee gosmee
@@ -453,6 +453,7 @@ function parse_args() {
       exit
       ;;
     -H | --all-github-second-no-forgejo) # Install everything but forgejo
+      INSTALL_FORGE=false
       install_kind
       all
       install_github_second_ctrl
