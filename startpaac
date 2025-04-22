@@ -212,19 +212,35 @@ create_pac_secret() {
   done
 }
 
+patch_configmap() {
+  local target_ns=${1:-pipelines-as-code}
+  local configmap=${2:-pipelines-as-code}
+  local kind_url=http://${DASHBOARD}
+
+  kubectl patch configmap -n ${target_ns} -p \
+    "{\"data\":{\"bitbucket-cloud-check-source-ip\": \"false\"}}" \
+    --type merge ${configmap}
+
+  kubectl patch configmap -n ${target_ns} -p \
+    "{\"data\":{\"tekton-dashboard-url\": \"${kind_url}\"}}" \
+    --type merge ${configmap}
+
+  kubectl patch configmap -n ${target_ns} -p \
+    '{"data":{"catalog-1-id": "custom", "catalog-1-name": "tekton", "catalog-1-url": "https://api.hub.tekton.dev/v1"}}' \
+    --type merge ${configmap}
+
+  kubectl patch configmap -n ${target_ns} -p \
+    '{"data":{"catalog-2-id": "custom2", "catalog-2-name": "tekton", "catalog-2-url": "https://api.hub.tekton.dev/v1"}}' \
+    --type merge ${configmap}
+
+}
+
 configure_pac() {
   local pac_controller_secret=pipelines-as-code-secret
   show_step "Configuring PAC"
 
   create_ingress pipelines-as-code pipelines-as-code-controller "${PAAC}" 8080
-
-  kubectl patch configmap -n pipelines-as-code -p \
-    "{\"data\":{\"bitbucket-cloud-check-source-ip\": \"false\"}}" pipelines-as-code
-  kubectl patch configmap -n pipelines-as-code -p \
-    "{\"data\":{\"tekton-dashboard-url\": \"http://${DASHBOARD}\"}}" --type merge pipelines-as-code
-  kubectl patch configmap -n pipelines-as-code -p \
-    '{"data":{"catalog-1-id": "custom", "catalog-1-name": "tekton", "catalog-1-url": "https://api.hub.tekton.dev/v1"}}' \
-    --type merge pipelines-as-code
+  patch_configmap ${PAC_CONTROLLER_TARGET_NS}
 
   if [[ -n ${PAC_PASS_SECRET_FOLDER:-""} ]]; then
     echo "Installing PAC secrets from pass folder: ${PAC_PASS_SECRET_FOLDER}"
@@ -287,13 +303,15 @@ function start_user_gosmee() {
 }
 
 function install_github_second_ctrl() {
+  local pac_controller_label="ghe" pac_controller_smee_url
+  local pac_controller_secret=${pac_controller_label}-secret
+  local pac_controller_configmap=${pac_controller_label}-configmap
+  local gosmeeTargetURL=${pac_controller_label}.${DOMAIN_NAME}
+  if [[ ${DOMAIN_NAME} == "local" ]]; then
+    gosmeeTargetURL=${pac_controller_label}.127.0.0.1.nip.io
+  fi
   show_step "Installing GHE second controller for github"
-  export PAC_CONTROLLER_LABEL="ghe"
-  export PAC_CONTROLLER_SECRET=${PAC_CONTROLLER_LABEL}-secret
-  export PAC_CONTROLLER_CONFIGMAP=${PAC_CONTROLLER_LABEL}-configmap
-  export PAC_CONTROLLER_TARGET_NS="pipelines-as-code"
-  export PAC_CONTROLLER_IMAGE="ko"
-  local kind_url=http://${DASHBOARD}
+
   [[ -z ${PAC_PASS_SECOND_FOLDER:-} && -z ${PAC_SECOND_SECRET_FOLDER:-} ]] && {
     echo "You need to set the PAC_PASS_SECOND_FOLDER or PAC_SECOND_SECRET_FOLDER variables in your ${CONFIG_FILE}"
     exit 1
@@ -306,7 +324,7 @@ function install_github_second_ctrl() {
       exit 1
     }
     echo "Using pass_secret_folder: ${PAC_PASS_SECOND_FOLDER}"
-    PAC_CONTROLLER_SMEE_URL=$(pass show ${PAC_PASS_SECOND_FOLDER} | sed -n '/SMEE_URL/ { s/.*=//;p}')
+    pac_controller_smee_url=$(pass show ${PAC_PASS_SECOND_FOLDER} | sed -n '/SMEE_URL/ { s/.*=//;p}')
   elif [[ -n ${PAC_SECOND_SECRET_FOLDER} ]]; then
     if [[ ! -d ${PAC_SECOND_SECRET_FOLDER} ]]; then
       echo "folder for second secret ${PAC_SECOND_SECRET_FOLDER} does not exist"
@@ -314,21 +332,27 @@ function install_github_second_ctrl() {
       exit 1
     fi
     echo "Using secret_folder: ${PAC_SECOND_SECRET_FOLDER}"
-    PAC_CONTROLLER_SMEE_URL=$(cat ${PAC_SECOND_SECRET_FOLDER}/smee)
+    pac_controller_smee_url=$(cat ${PAC_SECOND_SECRET_FOLDER}/smee)
   fi
-  export PAC_CONTROLLER_SMEE_URL
-  hack/second-controller.py ${PAC_CONTROLLER_LABEL} | tee /tmp/.second.controller.debug.yaml | env KO_DOCKER_REPO="${REGISTRY}" ko apply -f- -B --sbom=none "${KO_EXTRA_FLAGS[@]}"
-  kubectl patch configmap -n ${PAC_CONTROLLER_TARGET_NS} -p '{"data":{"application-name": "Pipelines as Code GHE"}}' ${PAC_CONTROLLER_CONFIGMAP}
-  kubectl patch configmap -n ${PAC_CONTROLLER_TARGET_NS} -p "{\"data\":{\"tekton-dashboard-url\": \"${kind_url}\"}}" --type merge ${PAC_CONTROLLER_CONFIGMAP}
-  kubectl patch configmap -n ${PAC_CONTROLLER_TARGET_NS} -p '{"data":{"catalog-2-id": "custom2", "catalog-2-name": "tekton", "catalog-2-url": "https://api.hub.tekton.dev/v1"}}' --type merge ${PAC_CONTROLLER_CONFIGMAP}
-  kubectl delete secret ${PAC_CONTROLLER_SECRET} -n ${PAC_CONTROLLER_TARGET_NS} >/dev/null 2>/dev/null || true
-  kubectl create secret generic ${PAC_CONTROLLER_SECRET} -n ${PAC_CONTROLLER_TARGET_NS} >/dev/null
+
+  env PAC_CONTROLLER_LABEL=${pac_controller_label} \
+    PAC_CONTROLLER_SECRET=${pac_controller_secret} \
+    PAC_CONTROLLER_CONFIGMAP=${pac_controller_configmap} \
+    PAC_CONTROLLER_TARGET_NS=${PAC_CONTROLLER_TARGET_NS} \
+    PAC_CONTROLLER_SMEE_URL=${pac_controller_smee_url} \
+    PAC_CONTROLLER_IMAGE="ko" \
+    hack/second-controller.py ${pac_controller_label} |
+    tee /tmp/.second.controller.debug.yaml |
+    env KO_DOCKER_REPO="${REGISTRY}" ko apply -f- -B --sbom=none "${KO_EXTRA_FLAGS[@]}"
+  patch_configmap ${PAC_CONTROLLER_TARGET_NS} ${pac_controller_configmap}
+  kubectl delete secret ${pac_controller_secret} -n ${PAC_CONTROLLER_TARGET_NS} >/dev/null 2>/dev/null || true
+  kubectl create secret generic ${pac_controller_secret} -n ${PAC_CONTROLLER_TARGET_NS} >/dev/null
   if [[ -n ${PAC_PASS_SECOND_FOLDER} ]]; then
     echo "Installing PAC secrets from pass folder: ${PAC_PASS_SECRET_FOLDER}"
-    create_pac_secret ${PAC_PASS_SECOND_FOLDER} ${PAC_CONTROLLER_SECRET} pass show
+    create_pac_secret ${PAC_PASS_SECOND_FOLDER} ${pac_controller_secret} pass show
   elif [[ -n ${PAC_SECOND_SECRET_FOLDER} ]]; then
     echo "Installing PAC secrets from plain text folder: ${PAC_SECOND_SECRET_FOLDER}"
-    create_pac_secret ${PAC_SECOND_SECRET_FOLDER} ${PAC_CONTROLLER_SECRET} cat
+    create_pac_secret ${PAC_SECOND_SECRET_FOLDER} ${pac_controller_secret} cat
   else
     cat <<EOF
 No secret has been installed.
@@ -343,14 +367,10 @@ Or have nothing and install the secrets manually after running the startpaac scr
 EOF
   fi
 
-  local targetUrl=${PAC_CONTROLLER_LABEL}.${DOMAIN_NAME}
-  if [[ ${DOMAIN_NAME} == "local" ]]; then
-    targetUrl=${PAC_CONTROLLER_LABEL}.127.0.0.1.nip.io
-  fi
-  show_step "Creating ingress for ${PAC_CONTROLLER_LABEL} controller"
-  create_ingress ${PAC_CONTROLLER_TARGET_NS} ${PAC_CONTROLLER_LABEL}-controller "${targetUrl}" 8080
-  kubectl delete deployment -n ${PAC_CONTROLLER_TARGET_NS} gosmee-${PAC_CONTROLLER_LABEL} 2>/dev/null || true
-  start_user_gosmee ghe ${PAC_CONTROLLER_SMEE_URL} "${targetUrl}"
+  show_step "Creating ingress for ${pac_controller_label} controller"
+  create_ingress ${PAC_CONTROLLER_TARGET_NS} ${pac_controller_label}-controller "${gosmeeTargetURL}" 8080
+  kubectl delete deployment -n ${PAC_CONTROLLER_TARGET_NS} gosmee-${pac_controller_label} 2>/dev/null || true
+  start_user_gosmee ghe ${pac_controller_smee_url} "${gosmeeTargetURL}"
 }
 
 function install_custom_objects() {
