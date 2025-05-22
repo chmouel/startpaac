@@ -19,4 +19,4 @@ helm install --wait -f ${fpath}/values.yaml \
   --set ingress.hosts[0].host=${FORGE_HOST} \
   --set ingress.tls[0].hosts[0]=${FORGE_HOST} \
   --set ingress.tls[0].secretName=${forge_secret_name} \
-  --create-namespace -n ${NS} forgejo oci://codeberg.org/forgejo-contrib/forgejo
+  --create-namespace -n ${NS} forgejo oci://code.forgejo.org/forgejo-helm/forgejo
