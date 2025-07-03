@@ -13,6 +13,12 @@ REGISTRY=${1}
 }
 TARGET_HOST=${2:-local}
 
+# DNS Check if the registry is resolvable
+if ! ping -c 1 "${REGISTRY}" >/dev/null 2>&1; then
+  echo "Error: Registry '${REGISTRY}' is not resolvable via DNS or up."
+  exit 2
+fi
+
 if [[ ${1:-""} == "-r" ]]; then
   kubectl delete ns ${NS} || true
 fi
