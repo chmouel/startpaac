@@ -140,6 +140,29 @@ Create a configuration file at `$HOME/.config/startpaac/config` with the followi
 You can have an alternative config file with the `STARTPAAC_CONFIG_FILE`
 environment variable.
 
+## PostgreSQL Configuration
+
+You can configure the PostgreSQL connection details in the `values.yaml` file
+located in `lib/postgresql/values.yaml`. The following parameters are available
+under `global.postgresql.auth`:
+
+- `username`: The PostgreSQL username.
+- `password`: The PostgreSQL password.
+- `database`: The PostgreSQL database name.
+
+If you want to customize the PostgreSQL configuration, you can modify the
+`lib/postgresql/values.yaml` file. For example:
+
+```yaml
+global:
+  postgresql:
+    auth:
+      username: "myuser"
+      password: "mypassword"
+      database: "mydatabase"
+```
+
+
 ## Secrets Management
 
 ### Using `pass`
@@ -197,7 +220,7 @@ you don't want confirmation just use the `-a` option.
 - `-A|--all-but-kind`       Install everything but kind
 - `-k|--kind`               (Re)Install Kind
 - `-g|--install-forge`      Install Forgejo
-- `-c|--component`          Deploy a component (controller, watcher, webhook)
+- `-c|--deploy-component`  Deploy a component (controller, watcher, webhook)
 - `-p|--install-paac`       Deploy and configure PAC
 - `-h|--help`               Show help message
 - `-s|--sync-kubeconfig`    Sync kubeconfig from the remote host
@@ -207,6 +230,8 @@ you don't want confirmation just use the `-a` option.
 - `--install-dashboard`     Install Tekton dashboard
 - `--install-tekton`        Install Tekton
 - `--install-custom-crds`   Install custom CRDs
+- `--redeploy-kind`         Redeploy Kind
+- `--scale-down`            Scale down a component (controller, watcher, webhook)
 - `--second-secret=SECRET`  Pass name for the second controller secret
 - `--stop-kind`             Stop Kind
 
@@ -245,7 +270,7 @@ you don't want confirmation just use the `-a` option.
 ### Deploy a Specific Component
 
 ```sh
-./startpaac --component controller
+./startpaac --deploy-component controller
 ```
 
 ### Sync Kubeconfig from Remote Host
@@ -271,6 +296,15 @@ give you the command line to start it.
 
 you need the `PAC_PASS_SECOND_FOLDER` which is the same
 `PAC_PASS_SECRET_FOLDER` but for a second controller to use.
+
+### PAC Installation Configuration
+
+You can configure the PAC installation with the following options:
+
+- `--debug-image`: Use a debug image for the PAC controller.
+- `--show-config`: Show the PAC configuration.
+- `--apply-non-root`: Apply non-root configuration to the PAC controller.
+
 
 ## ZSH Completion
 
