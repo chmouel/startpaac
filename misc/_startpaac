@@ -47,8 +47,10 @@ _arguments -C \
     '--install-dashboard[Install Tekton dashboard]' \
     '--install-registry[Install Docker registry]' \
     '--install-tekton[Install Tekton]' \
+    '--debug-image[Use a debug image]' \
     '--second-secret[Set the secret for second controller]:secret:->pass_profiles' \
     '--configure-pac[Configure PAC]' \
+    '--show-config[Show config]' \
     '--install-custom-crds[Install custom CRDs]' \
     '--all-but-forge[Install everything except Forgejo]' \
     '*:argument:->args' && ret=0

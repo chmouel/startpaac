@@ -36,6 +36,8 @@ FORGE_HOST=${FORGE_HOST:-""}
 INSTALL_GITHUB_SECOND_CTRL=${INSTALL_GITHUB_SECOND_CTRL:-""}
 INSTALL_FORGE=${INSTALL_FORGE:-"true"}
 PAC_PASS_SECOND_FOLDER=${PAC_PASS_SECOND_FOLDER:-}
+PAC_DEBUG_IMAGE=${PAC_DEBUG_IMAGE:-registry.access.redhat.com/ubi9/ubi-minimal}
+PAC_IMAGE_NONROOT=${PAC_IMAGE_NONROOT:-"true"}
 
 if [[ ${TARGET_HOST} == local ]]; then
   KO_EXTRA_FLAGS=(--insecure-registry)
@@ -51,7 +53,7 @@ fi
   exit 1
 }
 
-TMPFILE=$(mktemp /tmp/.mm.XXXXXX)
+TMPFILE=$(mktemp /tmp/.startpaac.XXXXXX)
 # shellcheck disable=SC2317
 clean() { rm -f ${TMPFILE}; }
 trap clean EXIT
@@ -168,6 +170,10 @@ stop_kind() {
 }
 
 install_pac() {
+  tmppac=$(mktemp /tmp/.pac.config.XXXXXX)
+  __clean() { rm -f ${tmppac}; }
+  trap __clean EXIT
+
   if [[ -n ${1:-""} ]]; then
     show_step "Deploying PAC $1"
   else
@@ -185,7 +191,11 @@ install_pac() {
     c=${c}/600-webhook.yaml
     ;;
   esac
-  env KO_DOCKER_REPO="${REGISTRY}" ko apply -f "${c}" -B --sbom=none "${KO_EXTRA_FLAGS[@]}"
+  env KO_DOCKER_REPO="${REGISTRY}" ko resolve -f${c} -B --sbom=none "${KO_EXTRA_FLAGS[@]}" >${tmppac}
+  if [[ -n ${PAC_IMAGE_NONROOT} && "${PAC_IMAGE_NONROOT}" == false ]]; then
+    sed -i 's/^\(\s*runAsNonRoot:\) true/\1 false/' ${tmppac}
+  fi
+  kubectl apply -f ${tmppac}
 
   for controller in ${scale_downs_controller}; do
     kubectl scale deployment -n pipelines-as-code -l app.kubernetes.io/name=${controller} --replicas=0
@@ -282,6 +292,7 @@ function sync_kubeconfig() {
   scp -q "${TARGET_HOST}":.kube/$(basename ${KUBECONFIG}) "${KUBECONFIG}"
   echo "${KUBECONFIG} from ${TARGET_HOST} has been updated"
   chmod 600 "${KUBECONFIG}"
+  set_namespace pipelines-as-code
 }
 
 function start_user_gosmee() {
@@ -428,7 +439,7 @@ function parse_args() {
     -o OHASGsakhgc:p \
     --long \
     "all,
-    config,
+    show-config,
     all-but-kind,
     all-github-second-no-forgejo
     all-to-tekton,
@@ -447,6 +458,7 @@ function parse_args() {
     redeploy-kind,
     second-secret:,
     start-user-gosmee,
+    debug-image
     sync-kubeconfig
     " -- "$@")
   #shellcheck disable=SC2181
@@ -463,8 +475,14 @@ function parse_args() {
       install_forgejo ${FORGE_HOST}
       exit
       ;;
-    --stop-kind) # Stop Kind
-      stop_kind
+    --debug-image) # use a debug image to apply KO images
+      show_step "Using debug image:  ${PAC_DEBUG_IMAGE}"
+      export KO_DEFAULTBASEIMAGE=${PAC_DEBUG_IMAGE}
+      PAC_IMAGE_NONROOT=false
+      install_pac
+      echo
+      echo "You can oc rsh to controller (or watcher, webhook) with:"
+      echo "kubectl exec -it deployment/pipelines-as-code-controller -- bash"
       exit
       ;;
     --second-secret) # Set the secret for the second controller
@@ -488,7 +506,7 @@ function parse_args() {
       show_config
       exit
       ;;
-    --config) # Show configuration
+    --show-config) # Show configuration
       show_config
       exit
       ;;
