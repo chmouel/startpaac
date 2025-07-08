@@ -1,16 +1,7 @@
-# Default values for postgresql.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
-
-# global.postgresql.auth.postgresPassword -- string
-# Password for the "postgres" admin user.
-#
-# NOTE: This is a default password. It is recommended to change it.
-# You can do so by changing the value below or by using the --set option
-# during helm install, e.g.:
-#   --set global.postgresql.auth.postgresPassword=your-new-password
-#
 global:
   postgresql:
     auth:
-      postgresPassword: "mysecretpassword"
+      postgresPassword: "secrete"
+      username: "pac"
+      password: "pac"
+      database: "pac"
