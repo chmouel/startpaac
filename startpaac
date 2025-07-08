@@ -3,7 +3,7 @@
 # shellcheck disable=SC2046,SC1091
 set -eufo pipefail
 
-scale_downs_controller=""
+scale_down_controller=""
 
 Miself=$(readlink -f "$0")
 SP=$(dirname ${Miself})
@@ -197,7 +197,7 @@ install_pac() {
   fi
   kubectl apply -f ${tmppac}
 
-  for controller in ${scale_downs_controller}; do
+  for controller in ${scale_down_controller}; do
     kubectl scale deployment -n pipelines-as-code -l app.kubernetes.io/name=${controller} --replicas=0
   done
 }
@@ -436,12 +436,12 @@ ${BOLD}Author: Chmouel Boudjnah <chmouel@chmouel.com>${NO_COLOR}
 function parse_args() {
   # use getopt to parse arguments
   args=$(getopt \
-    -o OHASGsakhgc:p \
+    -o O:HASGsakhgc:ptF \
     --long \
     "all,
     show-config,
     all-but-kind,
-    all-github-second-no-forgejo
+    all-github-second-no-forgejo,
     all-to-tekton,
     configure-pac,
     deploy-component:,
@@ -454,12 +454,15 @@ function parse_args() {
     install-paac,
     install-postgresql,
     install-registry,
-    install-tekton,stop-kind,
+    install-tekton,
+    stop-kind,
     redeploy-kind,
     second-secret:,
     start-user-gosmee,
-    debug-image
-    sync-kubeconfig
+    debug-image,
+    all-but-forge,
+    sync-kubeconfig,
+    scale-down:
     " -- "$@")
   #shellcheck disable=SC2181
   if [ $? -ne 0 ]; then
@@ -469,8 +472,10 @@ function parse_args() {
   while true; do
     case "$1" in
     -O | --scale-down) # scale down the controller
-      scale_downs_controller=$2
+      scale_down_controller+=" $2"
+      shift
       ;;
+
     -g | --install-forge) # Install Forgejo
       install_forgejo ${FORGE_HOST}
       exit
@@ -487,6 +492,7 @@ function parse_args() {
       ;;
     --second-secret) # Set the secret for the second controller
       PAC_PASS_SECOND_FOLDER=$2
+      shift
       install_github_second_ctrl
       exit
       ;;
@@ -558,8 +564,9 @@ function parse_args() {
       show_config
       exit
       ;;
-    -c | --component) # Install a specific component
+    -c | --deploy-component) # Install a specific component
       install_pac "$2"
+      shift
       exit
       ;;
     --install-custom-crds) # Install custom crds
@@ -576,6 +583,16 @@ function parse_args() {
       exit
       ;;
     -k | --kind) # Install Kind
+      install_kind
+      sync_kubeconfig
+      exit
+      ;;
+    --stop-kind) # Stop Kind
+      stop_kind
+      exit
+      ;;
+    --redeploy-kind) # Redeploy Kind
+      stop_kind
       install_kind
       sync_kubeconfig
       exit

@@ -6,10 +6,16 @@ local -A opt_args
 
 # Define common subcommands and their descriptions
 local -a pac_components
+local -a scale_down_components
 pac_components=(
     'controller:Deploy PAC controller component'
     'watcher:Deploy PAC watcher component'
     'webhook:Deploy PAC webhook component'
+)
+scale_down_components=(
+    'controller:Scale down the controller'
+    'watcher:Scale down the watcher'
+    'webhook:Scale down the webhook'
 )
 
 _get_pass_profiles() {
@@ -33,31 +39,35 @@ _arguments -C \
     '(-A --all-but-kind)'{-A,--all-but-kind}'[Install everything but kind]' \
     '(-k --kind)'{-k,--kind}'[Install Kind]' \
     '(-g --install-forge)'{-g,--install-forge}'[Install Forgejo]' \
-    '(-c --component)'{-c,--component}'[Deploy a specific PAC component]:component:->components' \
+    '(-c --deploy-component)'{-c,--deploy-component}'[Deploy a specific PAC component]:component:->components' \
     '(-p --install-paac)'{-p,--install-paac}'[Deploy and configure PAC]' \
     '(-s --sync-kubeconfig)'{-s,--sync-kubeconfig}'[Sync kubeconfig from remote host]' \
     '(-G --start-user-gosmee)'{-G,--start-user-gosmee}'[Start gosmee locally for user]' \
     '(-S --github-second-ctrl)'{-S,--github-second-ctrl}'[Deploy second controller for github]' \
     '(-H --all-github-second-no-forgejo)'{-H,--all-github-second-no-forgejo}'[Install everything but forgejo]' \
-    '(-O --scale-down)'{-O,--scale-down}'[Scale down the controller]:controller:' \
+    '(*-O|*--scale-down)'{-O,--scale-down}'[Scale down the controller]:controller:->scale_down_components' \
+    '(-t --install-tekton)'{-t,--install-tekton}'[Install Tekton]' \
+    '(-F --all-but-forge)'{-F,--all-but-forge}'[Install everything except Forgejo]' \
     '--stop-kind[Stop Kind cluster]' \
+    '--redeploy-kind[Redeploy Kind cluster]' \
     '--install-nginx[Install nginx ingress controller]' \
     '--install-postgresql[Install a postgresql database]' \
     '--all-to-tekton[Install everything up to Tekton]' \
     '--install-dashboard[Install Tekton dashboard]' \
     '--install-registry[Install Docker registry]' \
-    '--install-tekton[Install Tekton]' \
     '--debug-image[Use a debug image]' \
     '--second-secret[Set the secret for second controller]:secret:->pass_profiles' \
     '--configure-pac[Configure PAC]' \
     '--show-config[Show config]' \
     '--install-custom-crds[Install custom CRDs]' \
-    '--all-but-forge[Install everything except Forgejo]' \
     '*:argument:->args' && ret=0
 
 case $state in
     components)
         _describe -t components 'pac components' pac_components && ret=0
+        ;;
+    scale_down_components)
+        _describe -t scale_down_components 'scale down components' scale_down_components && ret=0
         ;;
     pass_profiles)
         _get_pass_profiles && ret=0
