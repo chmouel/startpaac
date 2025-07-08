@@ -42,6 +42,7 @@ _arguments -C \
     '(-O --scale-down)'{-O,--scale-down}'[Scale down the controller]:controller:' \
     '--stop-kind[Stop Kind cluster]' \
     '--install-nginx[Install nginx ingress controller]' \
+    '--install-postgresql[Install a postgresql database]' \
     '--all-to-tekton[Install everything up to Tekton]' \
     '--install-dashboard[Install Tekton dashboard]' \
     '--install-registry[Install Docker registry]' \

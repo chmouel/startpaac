@@ -271,6 +271,11 @@ function install_forgejo() {
   "${SP}"/lib/forgejo/install.sh ${1}
 }
 
+function install_postgresql() {
+  show_step "Installing PostgreSQL"
+  "${SP}"/lib/postgresql/install.sh
+}
+
 function sync_kubeconfig() {
   [[ ${TARGET_HOST} == local ]] && return
   show_step "Syncing kubeconfig"
@@ -436,6 +441,7 @@ function parse_args() {
     install-forge,
     install-nginx,
     install-paac,
+    install-postgresql,
     install-registry,
     install-tekton,stop-kind,
     redeploy-kind,
@@ -497,6 +503,10 @@ function parse_args() {
       ;;
     --install-registry) # Install dockerk registry
       install_registry
+      exit
+      ;;
+    --install-postgresql) # Install PostgreSQL
+      install_postgresql
       exit
       ;;
     --install-dashboard) # Install Tekton dashboard
