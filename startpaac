@@ -11,19 +11,24 @@ source ${SP}/lib/common.sh
 source ${SP}/lib/config.sh
 
 PAC_CONTROLLER_TARGET_NS=pipelines-as-code
-[[ -z ${PAC_DIR:-""} ]] && {
-  echo "You really need to set the PAC_DIR variable in your ${CONFIG_FILE}"
-  exit 1
-}
+_current_git=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+if [[ -d ${_current_git}/config ]]; then
+  PAC_DIR=${_current_git}
+else
+  [[ -z ${PAC_DIR:-""} ]] && {
+    echo "You really need to set the PAC_DIR variable in your ${CONFIG_FILE}"
+    exit 1
+  }
+
+  cd ${PAC_DIR:-""} || {
+    echo "cannot find the pipelines-as-code directory, set the PAC_DIR variable to where you have checked out the github.com/openshift-pipelines/pipelines-as-code repository in your ${HOME}/.config/startpaac/config"
+    exit 1
+  }
+fi
 
 if ! check_tools; then
   exit 1
 fi
-
-cd ${PAC_DIR:-""} || {
-  echo "cannot find the pipelines-as-code directory, set the PAC_DIR variable to where you have checked out the github.com/openshift-pipelines/pipelines-as-code repository in your ${HOME}/.config/startpaac/config"
-  exit 1
-}
 
 [[ -n "$*" && "${*}" == *\ local ]] && TARGET_HOST=local
 
@@ -196,6 +201,7 @@ install_pac() {
     sed -i 's/^\(\s*runAsNonRoot:\) true/\1 false/' ${tmppac}
   fi
   kubectl apply -f ${tmppac}
+  readlink -f ${c}
 
   for controller in ${scale_down_controller}; do
     kubectl scale deployment -n pipelines-as-code -l app.kubernetes.io/name=${controller} --replicas=0
