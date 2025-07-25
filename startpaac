@@ -11,9 +11,9 @@ source ${SP}/lib/common.sh
 source ${SP}/lib/config.sh
 
 PAC_CONTROLLER_TARGET_NS=pipelines-as-code
-_current_git=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
-if [[ -d ${_current_git}/config ]]; then
-  PAC_DIR=${_current_git}
+_git_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+if [[ -d ${_git_root}/config ]]; then
+  PAC_DIR=${_git_root}
 else
   [[ -z ${PAC_DIR:-""} ]] && {
     echo "You really need to set the PAC_DIR variable in your ${CONFIG_FILE}"
@@ -201,7 +201,7 @@ install_pac() {
     sed -i 's/^\(\s*runAsNonRoot:\) true/\1 false/' ${tmppac}
   fi
   kubectl apply -f ${tmppac}
-  readlink -f ${c}
+  echo "Using config from: ${c}"
 
   for controller in ${scale_down_controller}; do
     kubectl scale deployment -n pipelines-as-code -l app.kubernetes.io/name=${controller} --replicas=0
