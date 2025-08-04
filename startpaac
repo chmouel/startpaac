@@ -242,6 +242,9 @@ patch_configmap() {
   kubectl patch configmap -n ${target_ns} -p \
     "{\"data\":{\"tekton-dashboard-url\": \"${kind_url}\"}}" \
     --type merge ${configmap}
+
+  kubectl patch configmap pac-config-logging -n pipelines-as-code \
+    --type json -p '[{"op": "replace", "path": "/data/loglevel.pipelinesascode", "value":"debug"}]'
 }
 
 configure_pac() {
