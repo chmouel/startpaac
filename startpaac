@@ -232,7 +232,9 @@ patch_configmap() {
   local target_ns=${1:-pipelines-as-code}
   local configmap=${2:-pipelines-as-code}
   local kind_url=http://${DASHBOARD}
-
+  kubectl patch configmap -n pipelines-as-code \
+    -p '{"data":{"catalog-1-type": "artifacthub", "catalog-1-id": "pachub", "catalog-1-name": "pipelines-as-code", "catalog-1-url": "https://artifacthub.io"}}' \
+    --type merge pipelines-as-code
   kubectl patch configmap -n ${target_ns} -p \
     "{\"data\":{\"bitbucket-cloud-check-source-ip\": \"false\"}}" \
     --type merge ${configmap}
@@ -240,15 +242,6 @@ patch_configmap() {
   kubectl patch configmap -n ${target_ns} -p \
     "{\"data\":{\"tekton-dashboard-url\": \"${kind_url}\"}}" \
     --type merge ${configmap}
-
-  kubectl patch configmap -n ${target_ns} -p \
-    '{"data":{"catalog-1-id": "custom", "catalog-1-name": "tekton", "catalog-1-url": "https://api.hub.tekton.dev/v1"}}' \
-    --type merge ${configmap}
-
-  kubectl patch configmap -n ${target_ns} -p \
-    '{"data":{"catalog-2-id": "custom2", "catalog-2-name": "tekton", "catalog-2-url": "https://api.hub.tekton.dev/v1"}}' \
-    --type merge ${configmap}
-
 }
 
 configure_pac() {
