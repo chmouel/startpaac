@@ -583,7 +583,7 @@ function parse_args() {
       exit
       ;;
     --configure-pac-target) # Configure PAC to a target, this won't configure a ingress
-      # example: startpaac --configure-pac-target $KUBECONFIG openshift-pipelines /tmp/pac-secret 
+      # example: startpaac --configure-pac-target $KUBECONFIG openshift-pipelines /tmp/pac-secret
       export KUBECONFIG=$3
       export PAC_CONTROLLER_TARGET_NS=$4
       if [[ -d ~/.password-store/$5 ]]; then
@@ -598,7 +598,7 @@ function parse_args() {
       fi
       configure_pac --no-ingress
       show_step "Creating gosmee service in namespace gosmee"
-      makeGosmee gosmee $5 http://pipelines-as-code-controller.$PAC_CONTROLLER_TARGET_NS.svc.cluster.local:8080 gosmee
+      makeGosmee gosmee ${smee_url} http://pipelines-as-code-controller.$PAC_CONTROLLER_TARGET_NS.svc.cluster.local:8080 gosmee
       exit
       ;;
     -p | --install-paac) # Deploy and configure PAC
