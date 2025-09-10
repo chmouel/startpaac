@@ -145,8 +145,8 @@ wait_for_it() {
   local max_retries=$((max_wait / interval))
   while true; do
     if [[ ${i} -ge ${max_retries} ]]; then
-        echo_color brightred " FAILED (timeout after ${max_wait}s)"
-        return 1
+      echo_color brightred " FAILED (timeout after ${max_wait}s)"
+      return 1
     fi
     local ep
     ep=$(kubectl get ep -n "${namespace}" "${component}" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null || true)
@@ -188,4 +188,49 @@ check_tools() {
     fi
   fi
   return 0
+}
+
+makeGosmee() {
+  local deploymentName=$1
+  local smeeURL=$2
+  local controllerURL=$3
+  local namespace=${4:-gosmee}
+  cat <<EOF >/tmp/${deploymentName}.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: $namespace
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: $deploymentName
+  namespace: $namespace
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gosmee
+  template:
+    metadata:
+      labels:
+        app: gosmee
+    spec:
+      containers:
+        - image: ghcr.io/chmouel/gosmee:main
+          imagePullPolicy: Always
+          name: gosmee
+          args:
+            [
+              "client",
+              "--output",
+              "json",
+              "--saveDir",
+              "/tmp/save",
+              "$smeeURL",
+              "$controllerURL",
+            ]
+EOF
+  kubectl apply -f /tmp/${deploymentName}.yaml
 }

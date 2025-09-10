@@ -213,17 +213,19 @@ create_pac_secret() {
   shift
   secret_name=$1
   shift
+  target_ns=${1}
+  shift
   read -a read_method <<<"$@"
 
-  kubectl delete secret ${secret_name} -n pipelines-as-code 2>/dev/null || true
-  kubectl create secret generic ${secret_name} -n pipelines-as-code
+  kubectl delete secret ${secret_name} -n ${target_ns} 2>/dev/null || true
+  kubectl create secret generic ${secret_name} -n ${target_ns}
   for passk in github-application-id github-private-key webhook.secret; do
     if [[ ${passk} == *-key ]]; then
       b64d=$("${read_method[@]}" "${folder}"/${passk} | base64 -w0)
     else
       b64d=$(echo -n $("${read_method[@]}" "${folder}"/${passk}) | base64 -w0)
     fi
-    kubectl patch secret -n pipelines-as-code -p "{\"data\":{\"${passk}\": \"${b64d}\"}}" \
+    kubectl patch secret -n ${target_ns} -p "{\"data\":{\"${passk}\": \"${b64d}\"}}" \
       --type merge ${secret_name} >/dev/null
   done
 }
@@ -232,7 +234,7 @@ patch_configmap() {
   local target_ns=${1:-pipelines-as-code}
   local configmap=${2:-pipelines-as-code}
   local kind_url=http://${DASHBOARD}
-  kubectl patch configmap -n pipelines-as-code \
+  kubectl patch configmap -n ${target_ns} \
     -p '{"data":{"catalog-1-type": "artifacthub", "catalog-1-id": "pachub", "catalog-1-name": "pipelines-as-code", "catalog-1-url": "https://artifacthub.io"}}' \
     --type merge pipelines-as-code
   kubectl patch configmap -n ${target_ns} -p \
@@ -243,23 +245,23 @@ patch_configmap() {
     "{\"data\":{\"tekton-dashboard-url\": \"${kind_url}\"}}" \
     --type merge ${configmap}
 
-  kubectl patch configmap pac-config-logging -n pipelines-as-code \
+  kubectl patch configmap pac-config-logging -n ${target_ns} \
     --type json -p '[{"op": "replace", "path": "/data/loglevel.pipelinesascode", "value":"debug"}]'
 }
 
 configure_pac() {
-  local pac_controller_secret=pipelines-as-code-secret
+  local pac_controller_secret=pipelines-as-code-secret no_ingress=
   show_step "Configuring PAC"
-
-  create_ingress pipelines-as-code pipelines-as-code-controller "${PAAC}" 8080
+  [[ -n ${1:-} && ${1} == "--no-ingress" ]] && no_ingress=yes
+  [[ -z ${no_ingress} ]] && create_ingress pipelines-as-code pipelines-as-code-controller "${PAAC}" 8080
   patch_configmap ${PAC_CONTROLLER_TARGET_NS}
 
   if [[ -n ${PAC_PASS_SECRET_FOLDER:-""} ]]; then
     echo "Installing PAC secrets from pass folder: ${PAC_PASS_SECRET_FOLDER}"
-    create_pac_secret ${PAC_PASS_SECRET_FOLDER} ${pac_controller_secret} pass show
+    create_pac_secret ${PAC_PASS_SECRET_FOLDER} ${pac_controller_secret} ${PAC_CONTROLLER_TARGET_NS} pass show
   elif [[ -n ${PAC_SECRET_FOLDER:-""} ]]; then
     echo "Installing PAC secrets from plain text folder: ${PAC_SECRET_FOLDER}"
-    create_pac_secret ${PAC_SECRET_FOLDER} ${pac_controller_secret} cat
+    create_pac_secret ${PAC_SECRET_FOLDER} ${pac_controller_secret} ${PAC_CONTROLLER_TARGET_NS} cat
   else
     cat <<EOF
   **No secret has been installed**
@@ -367,10 +369,10 @@ function install_github_second_ctrl() {
   kubectl create secret generic ${pac_controller_secret} -n ${PAC_CONTROLLER_TARGET_NS} >/dev/null
   if [[ -n ${PAC_PASS_SECOND_FOLDER} ]]; then
     echo "Installing PAC secrets from pass folder: ${PAC_PASS_SECRET_FOLDER}"
-    create_pac_secret ${PAC_PASS_SECOND_FOLDER} ${pac_controller_secret} pass show
+    create_pac_secret ${PAC_PASS_SECOND_FOLDER} ${pac_controller_secret} ${PAC_CONTROLLER_TARGET_NS} pass show
   elif [[ -n ${PAC_SECOND_SECRET_FOLDER} ]]; then
     echo "Installing PAC secrets from plain text folder: ${PAC_SECOND_SECRET_FOLDER}"
-    create_pac_secret ${PAC_SECOND_SECRET_FOLDER} ${pac_controller_secret} cat
+    create_pac_secret ${PAC_SECOND_SECRET_FOLDER} ${pac_controller_secret} ${PAC_CONTROLLER_TARGET_NS} cat
   else
     cat <<EOF
 No secret has been installed.
@@ -462,6 +464,7 @@ function parse_args() {
     second-secret:,
     start-user-gosmee,
     debug-image,
+    configure-pac-target,
     all-but-forge,
     sync-kubeconfig,
     scale-down:
@@ -577,6 +580,25 @@ function parse_args() {
       ;;
     --configure-pac) # Configure PAC
       configure_pac
+      exit
+      ;;
+    --configure-pac-target) # Configure PAC to a target, this won't configure a ingress
+      # example: startpaac --configure-pac-target $KUBECONFIG openshift-pipelines /tmp/pac-secret 
+      export KUBECONFIG=$3
+      export PAC_CONTROLLER_TARGET_NS=$4
+      if [[ -d ~/.password-store/$5 ]]; then
+        export PAC_PASS_SECRET_FOLDER=$5
+        smee_url=$(pass show ${PAC_PASS_SECRET_FOLDER}/smee)
+      elif [[ -d $5 ]]; then
+        export PAC_SECRET_FOLDER=$5
+        smee_url=$(cat ${PAC_SECRET_FOLDER}/smee)
+      else
+        echo "Cannot find $5 folder or ~/.password-store/$5 folder"
+        exit 1
+      fi
+      configure_pac --no-ingress
+      show_step "Creating gosmee service in namespace gosmee"
+      makeGosmee gosmee $5 http://pipelines-as-code-controller.$PAC_CONTROLLER_TARGET_NS.svc.cluster.local:8080 gosmee
       exit
       ;;
     -p | --install-paac) # Deploy and configure PAC

@@ -62,7 +62,7 @@ if you need to deploy a change  you made to your code to the local registry you
 do:
 
 ```bash
-startpaac -p 
+startpaac -p
 ```
 
 this has redeployed everything, if you only want to redeploy the controller you can do:
@@ -76,6 +76,19 @@ if you want to spin down the kind cluster you can do:
 ```bash
 startpaac --stop-kind
 ```
+
+if you have an existing cluster with pac installed (for example openshift) you
+can configure paac directly there:
+
+```bash
+startpaac --configure-pac-target $KUBECONFIG $TARGET_NAMESPACE $DIRECTORY_OR_PASS_FOLDER
+```
+
+-The KUBECONFIG is the kubeconfig to use to connect to your cluster.
+-The `$TARGET_NAMESPACE` is the namespace where pac is installed (for example
+ openshift-pipelines if configured with operator).
+-The `$DIRECTORY_OR_PASS_FOLDER` is the secret folder with the same structure as documented
+ [earlier](#getting-started) but this can be a password store folder too.
 
 ## Configuration
 
