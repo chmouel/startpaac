@@ -14,9 +14,11 @@ nodes:
     extraPortMappings:
       - containerPort: 80
         hostPort: 80
+        listenAddress: "%TARGET_BIND_IP%"
         protocol: TCP
       - containerPort: 443
         hostPort: 443
+        listenAddress: "%TARGET_BIND_IP%"
         protocol: TCP
 containerdConfigPatches:
   - |-
