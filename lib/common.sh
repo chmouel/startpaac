@@ -159,6 +159,31 @@ wait_for_it() {
   return 0
 }
 
+wait_for_deployment() {
+  local namespace=$1
+  local deployment=$2
+  echo_color -n brightgreen "Waiting for deployment ${deployment} to be ready in ${namespace}: "
+  local i=0
+  local max_wait=120 # seconds
+  local interval=2   # seconds
+  local max_retries=$((max_wait / interval))
+  while true; do
+    if [[ ${i} -ge ${max_retries} ]]; then
+      echo_color brightred " FAILED (timeout after ${max_wait}s)"
+      return 1
+    fi
+    local desired ready
+    desired=$(kubectl get deployment -n "${namespace}" "${deployment}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+    ready=$(kubectl get deployment -n "${namespace}" "${deployment}" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    [[ -n ${desired} ]] && [[ -n ${ready} ]] && [[ ${desired} -eq ${ready} ]] && [[ ${ready} -gt 0 ]] && break
+    sleep ${interval}
+    echo_color -n brightwhite "."
+    i=$((i + 1))
+  done
+  echo_color brightgreen " OK"
+  return 0
+}
+
 check_tools() {
   local tools=(
     "kubectl"
