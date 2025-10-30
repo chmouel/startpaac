@@ -152,6 +152,22 @@ install_tekton() {
   kubectl patch configmap -n tekton-pipelines --type merge -p '{"data":{"enable-step-actions": "true"}}' feature-flags
 }
 
+install_triggers() {
+  local release_yaml
+  show_step "Deploying Tekton Triggers"
+  release_yaml=$(cache_yaml_file tekton-triggers https://storage.googleapis.com/tekton-releases/triggers/latest/release.yaml)
+  kubectl apply --filename "${release_yaml}" >/dev/null
+  wait_for_it tekton-pipelines tekton-triggers-webhook
+}
+
+install_chains() {
+  local release_yaml
+  show_step "Deploying Tekton Chains"
+  release_yaml=$(cache_yaml_file tekton-chains https://storage.googleapis.com/tekton-releases/chains/latest/release.yaml)
+  kubectl apply --filename "${release_yaml}" >/dev/null
+  wait_for_deployment tekton-chains tekton-chains-controller
+}
+
 install_dashboard() {
   local release_yaml
   show_step "Deploying Tekton Dashboard"
@@ -459,6 +475,8 @@ function parse_args() {
     install-postgresql,
     install-registry,
     install-tekton,
+    install-triggers,
+    install-chains,
     stop-kind,
     redeploy-kind,
     second-secret:,
@@ -544,6 +562,14 @@ function parse_args() {
       ;;
     -t | --install-tekton) # Install Tekton
       install_tekton
+      exit
+      ;;
+    --install-triggers ) # Install tekton triggers
+      install_triggers
+      exit
+      ;;
+    --install-chains ) # Install tekton chains
+      install_chains
       exit
       ;;
     --install-nginx) # Install Nginx
