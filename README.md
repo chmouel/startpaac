@@ -11,6 +11,8 @@ Components that get installed are:
 - Forgejo for local dev
 - Docker registry to push images to.
 - Tekton latest release
+- Tekton Triggers (optional)
+- Tekton Chains (optional)
 - Tekton dashboard latest
 - PAC using ko from your local revision
 
@@ -242,6 +244,8 @@ you don't want confirmation just use the `-a` option.
 - `--install-nginx`         Install Nginx
 - `--install-dashboard`     Install Tekton dashboard
 - `--install-tekton`        Install Tekton
+- `--install-triggers`      Install Tekton Triggers
+- `--install-chains`        Install Tekton Chains
 - `--install-custom-crds`   Install custom CRDs
 - `--redeploy-kind`         Redeploy Kind
 - `--scale-down`            Scale down a component (controller, watcher, webhook)
@@ -272,6 +276,18 @@ you don't want confirmation just use the `-a` option.
 
 ```sh
 ./startpaac --install-tekton
+```
+
+### Install Tekton Triggers
+
+```sh
+./startpaac --install-triggers
+```
+
+### Install Tekton Chains
+
+```sh
+./startpaac --install-chains
 ```
 
 ### Install Custom CRDs
