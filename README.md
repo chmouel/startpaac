@@ -51,7 +51,7 @@ mkdir -p ~/secrets
 for i in github-application-id github-private-key smee webhook.secret;do
   echo "Editing $i file"
   ${EDITOR:-vi} ~/secrets/$i
-fi
+done
 ```
 
 execute to deploy the kind cluster, the registry, nginx, paac, gitea etc..:
