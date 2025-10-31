@@ -135,53 +135,61 @@ generate_certs_minica() {
   (cd ${CERT_DIR} && minica -domains ${domain})
 }
 
-wait_for_it() {
-  local namespace=$1
-  local component=$2
-  echo_color -n brightgreen "Waiting for ${component} to be ready in ${namespace}: "
+wait_for_resource() {
+  local resource_type=$1
+  local namespace=$2
+  local name=$3
+  local display_name="${resource_type} ${name}"
+
+  echo_color -n brightgreen "Waiting for ${display_name} to be ready in ${namespace}: "
   local i=0
   local max_wait=120 # seconds
   local interval=2   # seconds
   local max_retries=$((max_wait / interval))
+
   while true; do
     if [[ ${i} -ge ${max_retries} ]]; then
       echo_color brightred " FAILED (timeout after ${max_wait}s)"
       return 1
     fi
-    local ep
-    ep=$(kubectl get ep -n "${namespace}" "${component}" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null || true)
-    [[ -n ${ep} ]] && break
+
+    local is_ready=0
+    case ${resource_type} in
+      endpoint|ep)
+        local ep
+        ep=$(kubectl get ep -n "${namespace}" "${name}" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null || true)
+        [[ -n ${ep} ]] && is_ready=1
+        ;;
+      deployment|deploy)
+        local desired ready
+        desired=$(kubectl get deployment -n "${namespace}" "${name}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
+        ready=$(kubectl get deployment -n "${namespace}" "${name}" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+        [[ -n ${desired} ]] && [[ -n ${ready} ]] && [[ ${desired} -eq ${ready} ]] && [[ ${ready} -gt 0 ]] && is_ready=1
+        ;;
+      *)
+        echo_color brightred " ERROR: Unknown resource type ${resource_type}"
+        return 1
+        ;;
+    esac
+
+    [[ ${is_ready} -eq 1 ]] && break
     sleep ${interval}
     echo_color -n brightwhite "."
     i=$((i + 1))
   done
+
   echo_color brightgreen " OK"
   return 0
 }
 
+# Backwards compatibility wrapper
+wait_for_it() {
+  wait_for_resource endpoint "$1" "$2"
+}
+
+# Backwards compatibility wrapper
 wait_for_deployment() {
-  local namespace=$1
-  local deployment=$2
-  echo_color -n brightgreen "Waiting for deployment ${deployment} to be ready in ${namespace}: "
-  local i=0
-  local max_wait=120 # seconds
-  local interval=2   # seconds
-  local max_retries=$((max_wait / interval))
-  while true; do
-    if [[ ${i} -ge ${max_retries} ]]; then
-      echo_color brightred " FAILED (timeout after ${max_wait}s)"
-      return 1
-    fi
-    local desired ready
-    desired=$(kubectl get deployment -n "${namespace}" "${deployment}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "0")
-    ready=$(kubectl get deployment -n "${namespace}" "${deployment}" -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
-    [[ -n ${desired} ]] && [[ -n ${ready} ]] && [[ ${desired} -eq ${ready} ]] && [[ ${ready} -gt 0 ]] && break
-    sleep ${interval}
-    echo_color -n brightwhite "."
-    i=$((i + 1))
-  done
-  echo_color brightgreen " OK"
-  return 0
+  wait_for_resource deployment "$1" "$2"
 }
 
 check_tools() {

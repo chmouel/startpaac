@@ -135,7 +135,7 @@ install_nginx() {
   release_yaml=$(cache_yaml_file nginx https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml)
   kubectl apply -f "${release_yaml}" >/dev/null
   kubectl -n ingress-nginx annotate ingressclasses nginx ingressclass.kubernetes.io/is-default-class="true" --overwrite=true
-  wait_for_it ingress-nginx ingress-nginx-controller
+  wait_for_resource endpoint ingress-nginx ingress-nginx-controller
 }
 
 install_registry() {
@@ -148,7 +148,7 @@ install_tekton() {
   show_step "Deploying Tekton"
   release_yaml=$(cache_yaml_file tekton https://storage.googleapis.com/tekton-releases/pipeline/latest/release.yaml)
   kubectl apply --filename "${release_yaml}" >/dev/null
-  wait_for_it tekton-pipelines tekton-pipelines-webhook
+  wait_for_resource endpoint tekton-pipelines tekton-pipelines-webhook
   kubectl patch configmap -n tekton-pipelines --type merge -p '{"data":{"enable-step-actions": "true"}}' feature-flags
 }
 
@@ -157,7 +157,7 @@ install_triggers() {
   show_step "Deploying Tekton Triggers"
   release_yaml=$(cache_yaml_file tekton-triggers https://storage.googleapis.com/tekton-releases/triggers/latest/release.yaml)
   kubectl apply --filename "${release_yaml}" >/dev/null
-  wait_for_it tekton-pipelines tekton-triggers-webhook
+  wait_for_resource endpoint tekton-pipelines tekton-triggers-webhook
 }
 
 install_chains() {
@@ -165,7 +165,7 @@ install_chains() {
   show_step "Deploying Tekton Chains"
   release_yaml=$(cache_yaml_file tekton-chains https://storage.googleapis.com/tekton-releases/chains/latest/release.yaml)
   kubectl apply --filename "${release_yaml}" >/dev/null
-  wait_for_deployment tekton-chains tekton-chains-controller
+  wait_for_resource deployment tekton-chains tekton-chains-controller
 }
 
 install_dashboard() {
@@ -564,11 +564,11 @@ function parse_args() {
       install_tekton
       exit
       ;;
-    --install-triggers ) # Install tekton triggers
+    --install-triggers ) # Install Tekton triggers
       install_triggers
       exit
       ;;
-    --install-chains ) # Install tekton chains
+    --install-chains ) # Install Tekton chains
       install_chains
       exit
       ;;
