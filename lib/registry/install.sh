@@ -25,7 +25,7 @@ fi
 
 kubectl create namespace ${NS} 2>/dev/null || true
 
-{ helm repo list | grep -q twun.io; } || helm repo add twuni https://helm.twun.io
+{ helm repo list | grep -q twun.io; } || helm repo add twuni https://twuni.github.io/docker-registry.helm
 [[ -z $(helm status -n ${NS} docker-registry) ]] &&
   helm install --wait --set garbageCollect.enabled=true docker-registry twuni/docker-registry --namespace ${NS}
 create_ingress ${NS} docker-registry ${REGISTRY} 5000
