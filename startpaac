@@ -212,7 +212,9 @@ install_pac() {
     c=${c}/600-webhook.yaml
     ;;
   esac
-  env KO_DOCKER_REPO="${REGISTRY}" ko resolve -f${c} -B --sbom=none "${KO_EXTRA_FLAGS[@]}" >${tmppac}
+  extras=()
+  [[ -e pkg/test/nonoai/deployment-extras.yaml ]] && extras+=(-f pkg/test/nonoai/deployment-extras.yaml)
+  env KO_DOCKER_REPO="${REGISTRY}" ko resolve -f${c} "${extras[@]}" -B --sbom=none "${KO_EXTRA_FLAGS[@]}" >${tmppac}
   if [[ -n ${PAC_IMAGE_NONROOT} && "${PAC_IMAGE_NONROOT}" == false ]]; then
     sed -i 's/^\(\s*runAsNonRoot:\) true/\1 false/' ${tmppac}
   fi
@@ -564,11 +566,11 @@ function parse_args() {
       install_tekton
       exit
       ;;
-    --install-triggers ) # Install Tekton triggers
+    --install-triggers) # Install Tekton triggers
       install_triggers
       exit
       ;;
-    --install-chains ) # Install Tekton chains
+    --install-chains) # Install Tekton chains
       install_chains
       exit
       ;;
