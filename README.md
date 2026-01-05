@@ -1,20 +1,24 @@
 # 🚀 StartPAAC - All in one setup for Pipelines as Code on Kind
 
 `startpaac` is a script to set up and configure Pipelines as Code (PAC) on a
-Kubernetes cluster using Kind. It supports installing various components such
-as Nginx, Tekton, and Forgejo, and configuring PAC with secrets.
+Kubernetes cluster using Kind. It features an interactive menu to select which
+components to install, with preferences that can be saved for future runs.
 
-Components that get installed are:
-
+**Core components** (always installed):
 - Kind cluster
 - Nginx ingress gateway
+- Docker registry to push images to
+- Tekton Pipelines latest release
+
+**Optional components** (choose via interactive menu):
+- Pipelines-as-Code (PAC) using ko from your local revision
+- Tekton Dashboard
+- Tekton Triggers
+- Tekton Chains
 - Forgejo for local dev
-- Docker registry to push images to.
-- Tekton latest release
-- Tekton Triggers (optional)
-- Tekton Chains (optional)
-- Tekton dashboard latest
-- PAC using ko from your local revision
+- PostgreSQL
+- Custom Kubernetes objects
+- GitHub Second Controller
 
 ## Prerequisites
 
@@ -23,6 +27,8 @@ Components that get installed are:
 - [Helm](https://helm.sh/) - Kubernetes package manager
 - [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/) - Kubernetes command-line tool
 - [ko](https://github.com/google/ko) - Build and deploy Go applications on Kubernetes
+- [gum](https://github.com/charmbracelet/gum) - Interactive component selection menus
+- [jq](https://stedolan.github.io/jq/) - JSON processor for preferences management
 - [pass](https://www.passwordstore.org/) (optional, for managing secrets) - Password manager
 - GNU Tools (ie for osx/bsd use the one from homebrew like
 [coreutils](https://formulae.brew.sh/formula/coreutils) and
@@ -54,13 +60,19 @@ for i in github-application-id github-private-key smee webhook.secret;do
 done
 ```
 
-execute to deploy the kind cluster, the registry, nginx, paac, gitea etc..:
+execute to interactively select and deploy components:
+
+```shell
+./startpaac
+```
+
+This will present an interactive menu where you can choose which components to install. For a non-interactive install of everything, use:
 
 ```shell
 ./startpaac -a
 ```
 
-if you need to deploy a change  you made to your code to the local registry you
+if you need to deploy a change you made to your code to the local registry you
 do:
 
 ```bash
@@ -91,6 +103,57 @@ startpaac --configure-pac-target $KUBECONFIG $TARGET_NAMESPACE $DIRECTORY_OR_PAS
  openshift-pipelines if configured with operator).
 -The `$DIRECTORY_OR_PASS_FOLDER` is the secret folder with the same structure as documented
  [earlier](#getting-started) but this can be a password store folder too.
+
+## Interactive Component Selection
+
+When running `startpaac` without any arguments, you'll be presented with an interactive menu to select which optional components to install:
+
+```bash
+./startpaac
+```
+
+The menu allows you to choose from:
+- **Pipelines-as-Code (PAC)** - Install and configure PAC (default: on)
+- **Tekton Triggers** - Event triggering for Tekton
+- **Tekton Chains** - Supply chain security for Tekton
+- **Tekton Dashboard** - Web UI for Tekton (default: on)
+- **Forgejo** - Git forge for local development (default: on)
+- **PostgreSQL** - Database for PAC
+- **Custom Objects** - Install custom Kubernetes objects (only shown if `INSTALL_CUSTOM_OBJECT` is configured)
+- **GitHub Second Controller** - Additional controller for GitHub (only shown if secrets are configured)
+
+**Core components** (Kind, Nginx, Registry, Tekton Pipelines) are always installed.
+
+After making your selections, you'll be asked if you want to save your preferences for future runs. Preferences are stored in `~/.config/startpaac/preferences.json`.
+
+### Managing Preferences
+
+```bash
+# Force interactive menu even if preferences exist
+./startpaac --menu
+
+# Reset saved preferences
+./startpaac --reset-preferences
+```
+
+On subsequent runs, if you have saved preferences, the script will automatically use them without showing the menu. You can always override this with `--menu` or clear preferences with `--reset-preferences`.
+
+### Preferences File Format
+
+Preferences are stored as JSON in `~/.config/startpaac/preferences.json`:
+
+```json
+{
+  "pac": true,
+  "tekton_triggers": false,
+  "tekton_chains": false,
+  "tekton_dashboard": true,
+  "forgejo": true,
+  "postgresql": false,
+  "custom_objects": false,
+  "github_second_ctrl": false
+}
+```
 
 ## Configuration
 
@@ -226,13 +289,16 @@ Run the script with the desired options:
 ./startpaac [options]
 ```
 
-By default, the script will install everything asking you to confirm before. If
-you don't want confirmation just use the `-a` option.
+When run without arguments, the script presents an interactive menu to select components. On first run, you can save your preferences which will be used automatically on subsequent runs.
+
+For non-interactive installation of everything, use the `-a` option.
 
 ### Options
 
-- `-a|--all`                Install everything
+- `-a|--all`                Install everything (non-interactive)
 - `-A|--all-but-kind`       Install everything but kind
+- `-i|--menu|--interactive` Force interactive component selection menu
+- `-R|--reset-preferences`  Reset saved component preferences
 - `-k|--kind`               (Re)Install Kind
 - `-g|--install-forge`      Install Forgejo
 - `-c|--deploy-component`  Deploy a component (controller, watcher, webhook)
@@ -254,10 +320,51 @@ you don't want confirmation just use the `-a` option.
 
 ## Examples
 
-### Install Everything
+### Interactive Installation (Recommended for First Time)
+
+Run without arguments to get an interactive menu:
+
+```sh
+./startpaac
+```
+
+This will:
+1. Show you the current configuration
+2. Present a multi-select menu of optional components
+3. Ask if you want to save your preferences
+4. Show a summary of what will be installed
+5. Ask for final confirmation before proceeding
+
+### Install Everything (Non-Interactive)
 
 ```sh
 ./startpaac --all
+```
+
+### Use Saved Preferences
+
+After saving preferences once, simply run:
+
+```sh
+./startpaac
+```
+
+It will use your saved preferences without showing the menu.
+
+### Change Component Selection
+
+Force the menu to appear even with saved preferences:
+
+```sh
+./startpaac --menu
+```
+
+### Reset to Defaults
+
+Clear your saved preferences:
+
+```sh
+./startpaac --reset-preferences
 ```
 
 ### Install PAC and Configure
