@@ -44,6 +44,16 @@ PAC_PASS_SECOND_FOLDER=${PAC_PASS_SECOND_FOLDER:-}
 PAC_DEBUG_IMAGE=${PAC_DEBUG_IMAGE:-registry.access.redhat.com/ubi9/ubi-minimal}
 PAC_IMAGE_NONROOT=${PAC_IMAGE_NONROOT:-"true"}
 
+# Component installation preferences
+PREFERENCES_FILE="${HOME}/.config/startpaac/preferences.json"
+INSTALL_PAC=${INSTALL_PAC:-"true"}
+INSTALL_TEKTON_TRIGGERS=${INSTALL_TEKTON_TRIGGERS:-"false"}
+INSTALL_TEKTON_CHAINS=${INSTALL_TEKTON_CHAINS:-"false"}
+INSTALL_TEKTON_DASHBOARD=${INSTALL_TEKTON_DASHBOARD:-"true"}
+INSTALL_POSTGRESQL=${INSTALL_POSTGRESQL:-"false"}
+INSTALL_CUSTOM_OBJECT_ENABLED=${INSTALL_CUSTOM_OBJECT_ENABLED:-"false"}
+FORCE_INTERACTIVE=${FORCE_INTERACTIVE:-"false"}
+
 if [[ ${TARGET_HOST} == local ]]; then
   KO_EXTRA_FLAGS=(--insecure-registry)
   DOMAIN_NAME=${TARGET_HOST}
@@ -430,11 +440,20 @@ all() {
   install_nginx
   install_registry
   install_tekton
-  install_dashboard
-  install_pac
-  configure_pac
-  [[ ${INSTALL_FORGE} == true ]] && install_forgejo ${FORGE_HOST}
-  [[ -n ${INSTALL_CUSTOM_OBJECT:-} ]] && install_custom_objects
+
+  # Optional Tekton components
+  [[ ${INSTALL_TEKTON_TRIGGERS} == "true" ]] && install_triggers
+  [[ ${INSTALL_TEKTON_CHAINS} == "true" ]] && install_chains
+  [[ ${INSTALL_TEKTON_DASHBOARD} == "true" ]] && install_dashboard
+
+  # PAC (optional)
+  [[ ${INSTALL_PAC} == "true" ]] && { install_pac; configure_pac; }
+
+  # Other optional components
+  [[ ${INSTALL_FORGE} == "true" ]] && install_forgejo ${FORGE_HOST}
+  [[ ${INSTALL_POSTGRESQL} == "true" ]] && install_postgresql
+  [[ -n ${INSTALL_CUSTOM_OBJECT:-} && ${INSTALL_CUSTOM_OBJECT_ENABLED} == "true" ]] && install_custom_objects
+  [[ ${INSTALL_GITHUB_SECOND_CTRL} == "true" ]] && install_github_second_ctrl
 
   start_user_gosmee gosmee
 
@@ -455,10 +474,181 @@ ${BOLD}Author: Chmouel Boudjnah <chmouel@chmouel.com>${NO_COLOR}
     "
 }
 
+# Load preferences from JSON file
+load_preferences() {
+  if [[ -f ${PREFERENCES_FILE} ]]; then
+    INSTALL_PAC=$(jq -r '.pac // true' "${PREFERENCES_FILE}")
+    INSTALL_TEKTON_TRIGGERS=$(jq -r '.tekton_triggers // false' "${PREFERENCES_FILE}")
+    INSTALL_TEKTON_CHAINS=$(jq -r '.tekton_chains // false' "${PREFERENCES_FILE}")
+    INSTALL_TEKTON_DASHBOARD=$(jq -r '.tekton_dashboard // true' "${PREFERENCES_FILE}")
+    INSTALL_FORGE=$(jq -r '.forgejo // true' "${PREFERENCES_FILE}")
+    INSTALL_POSTGRESQL=$(jq -r '.postgresql // false' "${PREFERENCES_FILE}")
+    INSTALL_CUSTOM_OBJECT_ENABLED=$(jq -r '.custom_objects // false' "${PREFERENCES_FILE}")
+    INSTALL_GITHUB_SECOND_CTRL=$(jq -r '.github_second_ctrl // false' "${PREFERENCES_FILE}")
+    return 0
+  fi
+  return 1
+}
+
+# Save preferences to JSON file
+save_preferences() {
+  mkdir -p "$(dirname "${PREFERENCES_FILE}")"
+  jq -n \
+    --argjson pac "${INSTALL_PAC:-true}" \
+    --argjson triggers "${INSTALL_TEKTON_TRIGGERS:-false}" \
+    --argjson chains "${INSTALL_TEKTON_CHAINS:-false}" \
+    --argjson dashboard "${INSTALL_TEKTON_DASHBOARD:-true}" \
+    --argjson forgejo "${INSTALL_FORGE:-true}" \
+    --argjson postgresql "${INSTALL_POSTGRESQL:-false}" \
+    --argjson custom_objects "${INSTALL_CUSTOM_OBJECT_ENABLED:-false}" \
+    --argjson github_second "${INSTALL_GITHUB_SECOND_CTRL:-false}" \
+    '{
+      pac: $pac,
+      tekton_triggers: $triggers,
+      tekton_chains: $chains,
+      tekton_dashboard: $dashboard,
+      forgejo: $forgejo,
+      postgresql: $postgresql,
+      custom_objects: $custom_objects,
+      github_second_ctrl: $github_second
+    }' > "${PREFERENCES_FILE}"
+}
+
+# Delete preferences file
+reset_preferences() {
+  if [[ -f ${PREFERENCES_FILE} ]]; then
+    rm -f "${PREFERENCES_FILE}"
+    echo_color brightgreen "Preferences have been reset."
+  else
+    echo "No preferences file found."
+  fi
+}
+
+# Build the list of menu items
+build_component_menu() {
+  echo "Pipelines-as-Code (PAC)"
+  echo "Tekton Triggers"
+  echo "Tekton Chains"
+  echo "Tekton Dashboard"
+  echo "Forgejo"
+  echo "PostgreSQL"
+  [[ -n ${INSTALL_CUSTOM_OBJECT:-} ]] && echo "Custom Objects"
+  [[ -n ${PAC_PASS_SECOND_FOLDER:-} || -n ${PAC_SECOND_SECRET_FOLDER:-} ]] && echo "GitHub Second Controller"
+}
+
+# Get pre-selected items based on current INSTALL_* vars
+get_preselected_items() {
+  local -a selected=()
+  [[ ${INSTALL_PAC} == "true" ]] && selected+=("Pipelines-as-Code (PAC)")
+  [[ ${INSTALL_TEKTON_TRIGGERS} == "true" ]] && selected+=("Tekton Triggers")
+  [[ ${INSTALL_TEKTON_CHAINS} == "true" ]] && selected+=("Tekton Chains")
+  [[ ${INSTALL_TEKTON_DASHBOARD} == "true" ]] && selected+=("Tekton Dashboard")
+  [[ ${INSTALL_FORGE} == "true" ]] && selected+=("Forgejo")
+  [[ ${INSTALL_POSTGRESQL} == "true" ]] && selected+=("PostgreSQL")
+  [[ ${INSTALL_CUSTOM_OBJECT_ENABLED} == "true" ]] && selected+=("Custom Objects")
+  [[ ${INSTALL_GITHUB_SECOND_CTRL} == "true" ]] && selected+=("GitHub Second Controller")
+  printf '%s\n' "${selected[@]}"
+}
+
+# Parse menu selections and set INSTALL_* variables
+parse_menu_selections() {
+  local selections="$1"
+
+  # Reset all optional install flags to false
+  INSTALL_PAC="false"
+  INSTALL_TEKTON_TRIGGERS="false"
+  INSTALL_TEKTON_CHAINS="false"
+  INSTALL_TEKTON_DASHBOARD="false"
+  INSTALL_FORGE="false"
+  INSTALL_POSTGRESQL="false"
+  INSTALL_CUSTOM_OBJECT_ENABLED="false"
+  INSTALL_GITHUB_SECOND_CTRL="false"
+
+  # Set flags based on selections
+  while IFS= read -r item; do
+    case "${item}" in
+      "Pipelines-as-Code (PAC)")
+        INSTALL_PAC="true"
+        ;;
+      "Tekton Triggers")
+        INSTALL_TEKTON_TRIGGERS="true"
+        ;;
+      "Tekton Chains")
+        INSTALL_TEKTON_CHAINS="true"
+        ;;
+      "Tekton Dashboard")
+        INSTALL_TEKTON_DASHBOARD="true"
+        ;;
+      "Forgejo")
+        INSTALL_FORGE="true"
+        ;;
+      "PostgreSQL")
+        INSTALL_POSTGRESQL="true"
+        ;;
+      "Custom Objects")
+        INSTALL_CUSTOM_OBJECT_ENABLED="true"
+        ;;
+      "GitHub Second Controller")
+        INSTALL_GITHUB_SECOND_CTRL="true"
+        ;;
+    esac
+  done <<< "${selections}"
+}
+
+# Display the gum menu and get selections
+show_component_menu() {
+  local menu_items selected_items preselected
+
+  echo ""
+  echo_color brightgreen "Select optional components to install:"
+  echo_color yellow "(Core: Kind, Nginx, Registry, Tekton Pipelines are always installed)"
+  echo ""
+
+  menu_items=$(build_component_menu)
+  preselected=$(get_preselected_items | paste -sd, -)
+
+  if [[ -n ${preselected} ]]; then
+    selected_items=$(echo "${menu_items}" | gum choose --no-limit --selected="${preselected}")
+  else
+    selected_items=$(echo "${menu_items}" | gum choose --no-limit)
+  fi
+
+  parse_menu_selections "${selected_items}"
+}
+
+# Ask user if they want to save preferences
+prompt_save_preferences() {
+  echo ""
+  if gum confirm "Save these preferences for next time?"; then
+    save_preferences
+    echo_color brightgreen "Preferences saved to ${PREFERENCES_FILE}"
+  fi
+}
+
+# Display summary of selected components
+show_selected_components() {
+  echo ""
+  echo_color brightgreen "Components to be installed:"
+  echo " - Kind cluster"
+  echo " - Nginx ingress"
+  echo " - Docker Registry"
+  echo " - Tekton Pipelines"
+
+  [[ ${INSTALL_PAC} == "true" ]] && echo " - Pipelines-as-Code (PAC)"
+  [[ ${INSTALL_TEKTON_TRIGGERS} == "true" ]] && echo " - Tekton Triggers"
+  [[ ${INSTALL_TEKTON_CHAINS} == "true" ]] && echo " - Tekton Chains"
+  [[ ${INSTALL_TEKTON_DASHBOARD} == "true" ]] && echo " - Tekton Dashboard"
+  [[ ${INSTALL_FORGE} == "true" ]] && echo " - Forgejo"
+  [[ ${INSTALL_POSTGRESQL} == "true" ]] && echo " - PostgreSQL"
+  [[ -n ${INSTALL_CUSTOM_OBJECT:-} && ${INSTALL_CUSTOM_OBJECT_ENABLED} == "true" ]] && echo " - Custom Objects"
+  [[ ${INSTALL_GITHUB_SECOND_CTRL} == "true" ]] && echo " - GitHub Second Controller"
+  echo ""
+}
+
 function parse_args() {
   # use getopt to parse arguments
   args=$(getopt \
-    -o O:HASGsakhgc:ptF \
+    -o O:HASGsakhgc:ptFiR \
     --long \
     "all,
     show-config,
@@ -487,7 +677,10 @@ function parse_args() {
     configure-pac-target,
     all-but-forge,
     sync-kubeconfig,
-    scale-down:
+    scale-down:,
+    menu,
+    interactive,
+    reset-preferences
     " -- "$@")
   #shellcheck disable=SC2181
   if [ $? -ne 0 ]; then
@@ -649,6 +842,13 @@ function parse_args() {
       sync_kubeconfig
       exit
       ;;
+    -i | --menu | --interactive) # Force interactive component selection menu
+      FORCE_INTERACTIVE="true"
+      ;;
+    -R | --reset-preferences) # Reset saved component preferences
+      reset_preferences
+      exit 0
+      ;;
     -h | --help) # Show help
       help
       exit 0
@@ -663,30 +863,39 @@ function parse_args() {
       exit 1
       ;;
     esac
+    shift
   done
 
+  # No arguments given - interactive mode
   show_config
   echo
-  echo "We are about to install the following steps:"
-  if [[ ${TARGET_HOST} != local ]]; then
-    echo " - Install Kind on ${TARGET_HOST}"
-  else
-    echo " - Install Kind on your local machine"
+
+  # Determine whether to show menu
+  local show_menu=true
+
+  if [[ -f ${PREFERENCES_FILE} && ${FORCE_INTERACTIVE} != "true" ]]; then
+    show_menu=false
+    load_preferences
+    echo_color yellow "Using saved preferences from ${PREFERENCES_FILE}"
+    echo_color yellow "Run with --menu to change, or --reset-preferences to clear."
   fi
-  echo " - Install Nginx"
-  echo " - Install Registry"
-  echo " - Install Tekton"
-  echo " - Install Tekton Dashboard"
-  echo " - Install PAC"
-  echo " - Configure PAC"
-  echo
-  read -p "Do you want to continue? [y/N] " -n 1 -r
-  echo
-  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo "Exiting"
+
+  if [[ ${show_menu} == "true" ]]; then
+    show_component_menu
+    prompt_save_preferences
+  fi
+
+  show_selected_components
+
+  # Final confirmation
+  if ! gum confirm "Proceed with installation?"; then
+    echo "Installation cancelled."
     exit 1
   fi
+
+  install_kind
   all
+  show_config
   exit
 }
 

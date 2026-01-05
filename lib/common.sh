@@ -206,6 +206,8 @@ check_tools() {
     "sed"
     "mktemp"
     "readlink"
+    "gum"
+    "jq"
   )
   for tool in "${tools[@]}"; do
     if ! command -v "$tool" &>/dev/null; then
