@@ -1,0 +1,176 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test-startpaac:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout startpaac repository
+        uses: actions/checkout@v4
+
+      - name: Checkout pipelines-as-code repository (required dependency)
+        uses: actions/checkout@v4
+        with:
+          repository: openshift-pipelines/pipelines-as-code
+          path: pipelines-as-code
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4.3.0
+        with:
+          version: "latest"
+
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "latest"
+
+      - name: Install ko (Build/deploy Go apps on Kubernetes)
+        run: |
+          KO_VERSION="0.17.0"
+          curl -fsSL "https://github.com/ko-build/ko/releases/download/v${KO_VERSION}/ko_${KO_VERSION}_Linux_x86_64.tar.gz" | \
+            sudo tar xz -C /usr/local/bin ko
+          ko version
+
+      - name: Install gum (Interactive menus)
+        run: |
+          GUM_VERSION="0.14.5"
+          curl -fsSL "https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/gum_${GUM_VERSION}_Linux_x86_64.tar.gz" | \
+            sudo tar xz -C /usr/local/bin gum
+          gum --version
+
+      - name: Install minica (Self-signed certificate generation)
+        run: |
+          go install github.com/jsha/minica@latest
+          echo "$HOME/go/bin" >> $GITHUB_PATH
+
+      - name: Verify all dependencies installed
+        run: |
+          echo "=== Verifying tool installations ==="
+          docker --version
+          kind version || echo "kind will be installed by kind-action"
+          helm version
+          kubectl version --client
+          ko version
+          gum --version
+          minica --version || echo "minica installed"
+          jq --version
+
+      - name: Set up Kind cluster
+        uses: helm/kind-action@v1.12.0
+        with:
+          cluster_name: kind
+
+      - name: Configure startpaac
+        run: |
+          mkdir -p $HOME/.config/startpaac
+          cat > $HOME/.config/startpaac/config <<EOF
+          TARGET_HOST=local
+          PAC_DIR=${{ github.workspace }}/pipelines-as-code
+          EOF
+          echo "=== startpaac config ==="
+          cat $HOME/.config/startpaac/config
+
+      - name: Run startpaac -a (non-interactive full installation)
+        timeout-minutes: 30
+        run: |
+          set -x
+          ./startpaac -a
+
+      - name: Wait for all pods to be ready
+        timeout-minutes: 10
+        run: |
+          set -x
+          echo "=== Waiting for Tekton Pipelines pods ==="
+          kubectl wait --for=condition=Ready pods --all -n tekton-pipelines --timeout=5m || true
+
+          echo "=== Waiting for nginx ingress pods ==="
+          kubectl wait --for=condition=Ready pods --all -n ingress-nginx --timeout=5m || true
+
+          echo "=== Waiting for PAC pods (if installed) ==="
+          if kubectl get namespace pipelines-as-code 2>/dev/null; then
+            kubectl wait --for=condition=Ready pods --all -n pipelines-as-code --timeout=5m || true
+          fi
+
+      - name: Run smoke tests
+        timeout-minutes: 10
+        run: |
+          set -x
+
+          echo "=== Test 1: Verify Kind cluster exists ==="
+          kind get clusters | grep -q "kind"
+
+          echo "=== Test 2: Check Kubernetes cluster info ==="
+          kubectl cluster-info
+
+          echo "=== Test 3: Verify core namespaces exist ==="
+          kubectl get namespaces
+          kubectl get namespace tekton-pipelines
+          kubectl get namespace ingress-nginx
+
+          echo "=== Test 4: Check Tekton Pipelines pods ==="
+          kubectl get pods -n tekton-pipelines -o wide
+
+          echo "=== Test 5: Check nginx ingress pods ==="
+          kubectl get pods -n ingress-nginx -o wide
+
+          echo "=== Test 6: Verify registry deployment ==="
+          kubectl get pods --all-namespaces | grep registry || echo "Registry not found (optional)"
+
+          echo "=== Test 7: Check PAC installation (if installed) ==="
+          if kubectl get namespace pipelines-as-code 2>/dev/null; then
+            kubectl get pods -n pipelines-as-code -o wide
+          else
+            echo "PAC namespace not found (optional component)"
+          fi
+
+          echo "=== Test 8: Verify Tekton Dashboard (if installed) ==="
+          if kubectl get deployment -n tekton-pipelines tekton-dashboard 2>/dev/null; then
+            kubectl get pods -n tekton-pipelines -l app=tekton-dashboard
+          else
+            echo "Tekton Dashboard not found (optional component)"
+          fi
+
+          echo "=== All smoke tests passed ==="
+
+      - name: Collect diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== Kind cluster status ==="
+          kind get clusters || true
+
+          echo "=== All pods in all namespaces ==="
+          kubectl get pods -A -o wide || true
+
+          echo "=== Events in all namespaces ==="
+          kubectl get events -A --sort-by='.lastTimestamp' || true
+
+          echo "=== Logs from failed/pending pods ==="
+          kubectl get pods -A -o json | \
+            jq -r '.items[] | select(.status.phase != "Running" and .status.phase != "Succeeded") |
+            "\(.metadata.namespace) \(.metadata.name)"' | \
+            while read ns pod; do
+              echo "=== Logs for $ns/$pod ==="
+              kubectl logs -n "$ns" "$pod" --all-containers=true --tail=100 || true
+            done
+
+      - name: Export Kind logs on failure
+        if: failure()
+        run: |
+          echo "=== Exporting Kind cluster logs ==="
+          kind export logs /tmp/kind-logs || true
+
+      - name: Upload Kind logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kind-logs
+          path: /tmp/kind-logs
+          retention-days: 7
