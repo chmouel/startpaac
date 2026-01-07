@@ -1,8 +1,13 @@
 # 🚀 StartPAAC - All in one setup for Pipelines as Code on Kind
 
-`startpaac` is a script to set up and configure Pipelines as Code (PAC) on a
+[![ShellCheck](https://github.com/chmouel/startpaac/actions/workflows/shellcheck.yml/badge.svg)](https://github.com/chmouel/startpaac/actions/workflows/shellcheck.yml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
+`startpaac` is a script to set up and configure [Pipelines as Code (PAC)](https://pipelinesascode.com) on a
 Kubernetes cluster using Kind. It features an interactive menu to select which
 components to install, with preferences that can be saved for future runs.
+
+> **What is Pipelines as Code?** Pipelines as Code is a Tekton-based CI/CD system that allows you to define your pipelines as code in your source repository, triggered by GitHub/GitLab events.
 
 **Core components** (always installed):
 - Kind cluster
@@ -20,24 +25,48 @@ components to install, with preferences that can be saved for future runs.
 - Custom Kubernetes objects
 - GitHub Second Controller
 
+## System Requirements
+
+**Minimum**:
+- 4 CPU cores
+- 8GB RAM
+- 20GB available disk space
+
+**Recommended**:
+- 8 CPU cores
+- 16GB RAM
+- 50GB available disk space
+
 ## Prerequisites
 
-- [Docker]() - We only tested with docker currently, it may works with podman but i haven't tested it yet
-- [Kind](https://kind.sigs.k8s.io/) - Kubernetes in Docker
-- [Helm](https://helm.sh/) - Kubernetes package manager
-- [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/) - Kubernetes command-line tool
-- [ko](https://github.com/google/ko) - Build and deploy Go applications on Kubernetes
-- [gum](https://github.com/charmbracelet/gum) - Interactive component selection menus
-- [jq](https://stedolan.github.io/jq/) - JSON processor for preferences management
-- [pass](https://www.passwordstore.org/) (optional, for managing secrets) - Password manager
-- GNU Tools (ie for osx/bsd use the one from homebrew like
-[coreutils](https://formulae.brew.sh/formula/coreutils) and
-[sed](https://formulae.brew.sh/formula/gnu-sed#default) and configure them in
-your path).
+The following tools are required. Install them before running `startpaac`:
+
+- [Docker](https://docs.docker.com/get-docker/) >= 20.10 - Container runtime (tested with Docker, Podman may work but untested)
+- [Kind](https://kind.sigs.k8s.io/) >= 0.20.0 - Kubernetes in Docker
+- [Helm](https://helm.sh/) >= 3.10 - Kubernetes package manager
+- [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/) >= 1.24 - Kubernetes command-line tool
+- [ko](https://github.com/google/ko) >= 0.14 - Build and deploy Go applications on Kubernetes
+- [gum](https://github.com/charmbracelet/gum) >= 0.11 - Interactive component selection menus
+- [jq](https://stedolan.github.io/jq/) >= 1.6 - JSON processor for preferences management
+- [minica](https://github.com/jsha/minica) - Self-signed certificate generation
+- [pass](https://www.passwordstore.org/) (optional) - Password manager for secrets
+- GNU Tools (macOS/BSD users: install from homebrew - [coreutils](https://formulae.brew.sh/formula/coreutils), [gnu-sed](https://formulae.brew.sh/formula/gnu-sed#default))
+
+## Security Notice
+
+⚠️ **This tool is designed for local development environments only.**
+
+- Default passwords in the values.yaml files are **weak and for development only**
+- Self-signed TLS certificates are generated automatically
+- Secrets can be stored in plain text files (use `pass` for better security)
+- **DO NOT use this setup in production environments**
+- Review and change all default credentials in `lib/*/values.yaml` if deploying anywhere accessible
+
+For production deployments, please refer to the [Pipelines as Code production installation guide](https://pipelinesascode.com/docs/install/installation/).
 
 ## Getting Started
 
-execute or adapt the following, adjust the path of the PAC folder where you
+Execute or adapt the following, adjust the path of the PAC folder where you
 have checked out pipelines-as-code:
 
 ```shell
