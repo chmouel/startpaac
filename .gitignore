@@ -1,1 +1,40 @@
 .aider*
+
+# Secrets and credentials
+secrets/
+*.pem
+*.key
+*.crt
+.env
+.env.*
+*.kubeconfig
+kubeconfig*
+
+# Temporary files
+*.tmp
+*.log
+/tmp/
+.cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test outputs
+test-results/
+coverage/
+*.junit.xml
+
+# Build artifacts
+dist/
+build/
+
+# Local configuration overrides
+config.local
