@@ -5,7 +5,7 @@ echo "Loading configuration from ${CONFIG_FILE}"
 if [[ -e "${CONFIG_FILE}" ]]; then
   source "${CONFIG_FILE}"
 else
-  mkdir -p $(dirname $CONFIG_FILE)
+  mkdir -p "$(dirname "$CONFIG_FILE")"
   echo "Creating a sample $HOME/.config/startpaac/config file"
   cat <<EOF >"${CONFIG_FILE}"
 # PAC_DIR is the path to the pipelines-as-code directory, it will try to detect

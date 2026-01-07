@@ -3,7 +3,7 @@
 set -eufo pipefail
 NS=forgejo
 fpath=$(dirname "$0")
-FORGE_HOST=$(echo -n forgejo.$(kubectl get route -n openshift-console console -o json | jq -r .spec.host | sed 's/.*\.app/app/'))
+FORGE_HOST=$(echo -n forgejo."$(kubectl get route -n openshift-console console -o json | jq -r .spec.host | sed 's/.*\.app/app/')")
 TMP=$(mktemp /tmp/.mm.XXXXXX)
 clean() { rm -f ${TMP}; }
 trap clean EXIT

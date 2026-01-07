@@ -42,9 +42,9 @@ show_step "Copying self certs on the control plane"
 prefix=()
 if [[ ${TARGET_HOST} != local ]]; then
   generate_certs_minica ${REGISTRY}
-  scp -qr ${CERT_DIR} ${TARGET_HOST}:/tmp/$(basename ${CERT_DIR})
+  scp -qr ${CERT_DIR} ${TARGET_HOST}:/tmp/"$(basename "${CERT_DIR}")"
   prefix=(ssh -q "${TARGET_HOST}" -t)
-  CERT_DIR=/tmp/$(basename ${CERT_DIR})
+  CERT_DIR=/tmp/"$(basename "${CERT_DIR}")"
 fi
 
 show_step "Copying self certs to the control plane"
