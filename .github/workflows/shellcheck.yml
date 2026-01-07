@@ -27,5 +27,6 @@ jobs:
           severity: warning
           format: gcc
           additional_files: 'startpaac'
+          ignore_paths: misc
         env:
           SHELLCHECK_OPTS: -x -e SC1091

@@ -32,12 +32,8 @@ jobs:
         with:
           version: "latest"
 
-      - name: Install ko (Build/deploy Go apps on Kubernetes)
-        run: |
-          KO_VERSION="0.17.0"
-          curl -fsSL "https://github.com/ko-build/ko/releases/download/v${KO_VERSION}/ko_${KO_VERSION}_Linux_x86_64.tar.gz" | \
-            sudo tar xz -C /usr/local/bin ko
-          ko version
+      - name: Set up ko (Build/deploy Go apps on Kubernetes)
+        uses: ko-build/setup-ko@v0.9
 
       - name: Install gum (Interactive menus)
         run: |
