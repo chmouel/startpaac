@@ -37,9 +37,9 @@ jobs:
 
       - name: Install gum (Interactive menus)
         run: |
-          GUM_VERSION="0.14.5"
+          GUM_VERSION="0.17.0"
           curl -fsSL "https://github.com/charmbracelet/gum/releases/download/v${GUM_VERSION}/gum_${GUM_VERSION}_Linux_x86_64.tar.gz" | \
-            sudo tar xz -C /usr/local/bin gum
+            sudo tar xz -C /usr/local/bin
           gum --version
 
       - name: Install minica (Self-signed certificate generation)
