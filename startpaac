@@ -6,9 +6,9 @@ set -eufo pipefail
 scale_down_controller=""
 
 Miself=$(readlink -f "$0")
-SP=$(dirname ${Miself})
-source ${SP}/lib/common.sh
-source ${SP}/lib/config.sh
+SP=$(dirname "${Miself}")
+source "${SP}/lib/common.sh"
+source "${SP}/lib/config.sh"
 
 PAC_CONTROLLER_TARGET_NS=pipelines-as-code
 _git_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
@@ -20,7 +20,7 @@ else
     exit 1
   }
 
-  cd ${PAC_DIR:-""} || {
+  cd "${PAC_DIR:-}" || {
     echo "cannot find the pipelines-as-code directory, set the PAC_DIR variable to where you have checked out the github.com/openshift-pipelines/pipelines-as-code repository in your ${HOME}/.config/startpaac/config"
     exit 1
   }
@@ -70,7 +70,7 @@ fi
 
 TMPFILE=$(mktemp /tmp/.startpaac.XXXXXX)
 # shellcheck disable=SC2317
-clean() { rm -f ${TMPFILE}; }
+clean() { rm -f "${TMPFILE}"; }
 trap clean EXIT
 
 export KUBECONFIG=${KUBECONFIG:-$HOME/.kube/config.${DOMAIN_NAME%%.*}}
@@ -106,12 +106,12 @@ cache_yaml_file() {
   local url="$2"
   local cache_dir="${HOME}/.cache/startpaac"
   local filename="${cache_dir}/${type}.yaml"
-  mkdir -p ${cache_dir}
+  mkdir -p "${cache_dir}"
 
-  if [[ ! -e ${filename} ]]; then
-    curl --progress-bar -L --location --retry 10 --retry-max-time 10 -o ${filename} ${url}
+  if [[ ! -e "${filename}" ]]; then
+    curl --progress-bar -L --location --retry 10 --retry-max-time 10 -o "${filename}" "${url}"
   fi
-  echo ${filename}
+  echo "${filename}"
 }
 
 check_kind() {
@@ -126,15 +126,15 @@ install_kind() {
   [[ "${TARGET_HOST}" != local ]] && check_kind
   stop_kind
   show_step "Creating kind cluster"
-  local kfilename=${SP}/lib/kind/kind.yaml
-  sed -e "s/%REGISTRY%/${REGISTRY}/" -e "s/%TARGET_BIND_IP%/${TARGET_BIND_IP}/" ${kfilename} >$TMPFILE
+  local kfilename="${SP}/lib/kind/kind.yaml"
+  sed -e "s/%REGISTRY%/${REGISTRY}/" -e "s/%TARGET_BIND_IP%/${TARGET_BIND_IP}/" "${kfilename}" >"${TMPFILE}"
   case ${TARGET_HOST} in
   local)
-    kind create cluster --kubeconfig ${KUBECONFIG} --config ${TMPFILE}
+    kind create cluster --kubeconfig "${KUBECONFIG}" --config "${TMPFILE}"
     ;;
   *)
     scp -q "${TMPFILE}" "${TARGET_HOST}":/tmp/.kind.yaml
-    ssh -q "${TARGET_HOST}" kind create cluster --kubeconfig .kube/$(basename ${KUBECONFIG}) --config /tmp/.kind.yaml
+    ssh -q "${TARGET_HOST}" kind create cluster --kubeconfig ".kube/$(basename "${KUBECONFIG}")" --config /tmp/.kind.yaml
     ;;
   esac
 }
@@ -202,7 +202,8 @@ stop_kind() {
 
 install_pac() {
   tmppac=$(mktemp /tmp/.pac.config.XXXXXX)
-  __clean() { rm -f ${tmppac}; }
+  # shellcheck disable=SC2317
+  __clean() { rm -f "${tmppac}"; }
   trap __clean EXIT
 
   if [[ -n ${1:-""} ]]; then
@@ -224,15 +225,15 @@ install_pac() {
   esac
   extras=()
   [[ -e pkg/test/nonoai/deployment-extras.yaml ]] && extras+=(-f pkg/test/nonoai/deployment-extras.yaml)
-  env KO_DOCKER_REPO="${REGISTRY}" ko resolve -f${c} "${extras[@]}" -B --sbom=none "${KO_EXTRA_FLAGS[@]}" >${tmppac}
+  env KO_DOCKER_REPO="${REGISTRY}" ko resolve -f"${c}" "${extras[@]}" -B --sbom=none "${KO_EXTRA_FLAGS[@]}" >"${tmppac}"
   if [[ -n ${PAC_IMAGE_NONROOT} && "${PAC_IMAGE_NONROOT}" == false ]]; then
-    sed -i 's/^\(\s*runAsNonRoot:\) true/\1 false/' ${tmppac}
+    sed -i 's/^\(\s*runAsNonRoot:\) true/\1 false/' "${tmppac}"
   fi
-  kubectl apply -f ${tmppac}
+  kubectl apply -f "${tmppac}"
   echo "Using config from: ${c}"
 
   for controller in ${scale_down_controller}; do
-    kubectl scale deployment -n pipelines-as-code -l app.kubernetes.io/name=${controller} --replicas=0
+    kubectl scale deployment -n pipelines-as-code -l "app.kubernetes.io/name=${controller}" --replicas=0
   done
 }
 
@@ -243,37 +244,37 @@ create_pac_secret() {
   shift
   target_ns=${1}
   shift
-  read -a read_method <<<"$@"
+  read -r -a read_method <<<"$@"
 
-  kubectl delete secret ${secret_name} -n ${target_ns} 2>/dev/null || true
-  kubectl create secret generic ${secret_name} -n ${target_ns}
+  kubectl delete secret "${secret_name}" -n "${target_ns}" 2>/dev/null || true
+  kubectl create secret generic "${secret_name}" -n "${target_ns}"
   for passk in github-application-id github-private-key webhook.secret; do
     if [[ ${passk} == *-key ]]; then
-      b64d=$("${read_method[@]}" "${folder}"/${passk} | base64 -w0)
+      b64d=$("${read_method[@]}" "${folder}/${passk}" | base64 -w0)
     else
-      b64d=$(echo -n $("${read_method[@]}" "${folder}"/${passk}) | base64 -w0)
+      b64d=$(echo -n "$("${read_method[@]}" "${folder}/${passk}")" | base64 -w0)
     fi
-    kubectl patch secret -n ${target_ns} -p "{\"data\":{\"${passk}\": \"${b64d}\"}}" \
-      --type merge ${secret_name} >/dev/null
+    kubectl patch secret -n "${target_ns}" -p "{\"data\":{\"${passk}\": \"${b64d}\"}}" \
+      --type merge "${secret_name}" >/dev/null
   done
 }
 
 patch_configmap() {
   local target_ns=${1:-pipelines-as-code}
   local configmap=${2:-pipelines-as-code}
-  local kind_url=http://${DASHBOARD}
-  kubectl patch configmap -n ${target_ns} \
+  local kind_url="http://${DASHBOARD}"
+  kubectl patch configmap -n "${target_ns}" \
     -p '{"data":{"catalog-1-type": "artifacthub", "catalog-1-id": "pachub", "catalog-1-name": "pipelines-as-code", "catalog-1-url": "https://artifacthub.io"}}' \
     --type merge pipelines-as-code
-  kubectl patch configmap -n ${target_ns} -p \
+  kubectl patch configmap -n "${target_ns}" -p \
     "{\"data\":{\"bitbucket-cloud-check-source-ip\": \"false\"}}" \
-    --type merge ${configmap}
+    --type merge "${configmap}"
 
-  kubectl patch configmap -n ${target_ns} -p \
+  kubectl patch configmap -n "${target_ns}" -p \
     "{\"data\":{\"tekton-dashboard-url\": \"${kind_url}\"}}" \
-    --type merge ${configmap}
+    --type merge "${configmap}"
 
-  kubectl patch configmap pac-config-logging -n ${target_ns} \
+  kubectl patch configmap pac-config-logging -n "${target_ns}" \
     --type json -p '[{"op": "replace", "path": "/data/loglevel.pipelinesascode", "value":"debug"}]'
 }
 
@@ -282,14 +283,14 @@ configure_pac() {
   show_step "Configuring PAC"
   [[ -n ${1:-} && ${1} == "--no-ingress" ]] && no_ingress=yes
   [[ -z ${no_ingress} ]] && create_ingress pipelines-as-code pipelines-as-code-controller "${PAAC}" 8080
-  patch_configmap ${PAC_CONTROLLER_TARGET_NS}
+  patch_configmap "${PAC_CONTROLLER_TARGET_NS}"
 
-  if [[ -n ${PAC_PASS_SECRET_FOLDER:-""} ]]; then
+  if [[ -n ${PAC_PASS_SECRET_FOLDER:-} ]]; then
     echo "Installing PAC secrets from pass folder: ${PAC_PASS_SECRET_FOLDER}"
-    create_pac_secret ${PAC_PASS_SECRET_FOLDER} ${pac_controller_secret} ${PAC_CONTROLLER_TARGET_NS} pass show
-  elif [[ -n ${PAC_SECRET_FOLDER:-""} ]]; then
+    create_pac_secret "${PAC_PASS_SECRET_FOLDER}" "${pac_controller_secret}" "${PAC_CONTROLLER_TARGET_NS}" pass show
+  elif [[ -n ${PAC_SECRET_FOLDER:-} ]]; then
     echo "Installing PAC secrets from plain text folder: ${PAC_SECRET_FOLDER}"
-    create_pac_secret ${PAC_SECRET_FOLDER} ${pac_controller_secret} ${PAC_CONTROLLER_TARGET_NS} cat
+    create_pac_secret "${PAC_SECRET_FOLDER}" "${pac_controller_secret}" "${PAC_CONTROLLER_TARGET_NS}" cat
   else
     cat <<EOF
   **No secret has been installed**
@@ -427,7 +428,7 @@ function install_custom_objects() {
     echo "Cannot find ${INSTALL_CUSTOM_OBJECT} directory"
     exit 1
   }
-  kubectl apply -f ${INSTALL_CUSTOM_OBJECT}
+  kubectl apply -f "${INSTALL_CUSTOM_OBJECT}"
 }
 
 function set_namespace() {
