@@ -67,9 +67,18 @@ jobs:
       - name: Configure startpaac
         run: |
           mkdir -p $HOME/.config/startpaac
+          mkdir -p $HOME/secrets
+
+          # Create dummy secret files for CI testing
+          echo "https://smee.io/dummy-ci-webhook" > $HOME/secrets/smee
+          echo "dummy-github-app-id" > $HOME/secrets/github-application-id
+          echo "dummy-private-key" > $HOME/secrets/github-private-key
+          echo "dummy-webhook-secret" > $HOME/secrets/webhook.secret
+
           cat > $HOME/.config/startpaac/config <<EOF
           TARGET_HOST=local
           PAC_DIR=${{ github.workspace }}/pipelines-as-code
+          PAC_SECRET_FOLDER=$HOME/secrets
           EOF
           echo "=== startpaac config ==="
           cat $HOME/.config/startpaac/config
