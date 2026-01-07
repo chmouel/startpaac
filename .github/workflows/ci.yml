@@ -89,6 +89,12 @@ jobs:
           set -x
           ./startpaac -a
 
+      - name: Set up kubeconfig for kind cluster
+        run: |
+          kind export kubeconfig --name kind
+          kubectl config use-context kind-kind
+          kubectl cluster-info
+
       - name: Wait for all pods to be ready
         timeout-minutes: 10
         run: |
