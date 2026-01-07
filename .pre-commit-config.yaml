@@ -1,7 +1,9 @@
 # Pre-commit hooks for StartPAAC
 # Install pre-commit: pip install pre-commit
-# Setup hooks: pre-commit install
+# Setup hooks: pre-commit install --hook-type pre-push
 # Run manually: pre-commit run --all-files
+
+default_stages: [pre-push]
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
