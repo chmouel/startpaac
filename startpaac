@@ -26,9 +26,7 @@ else
   }
 fi
 
-if ! check_tools; then
-  exit 1
-fi
+# Note: check_tools() is called later after argument parsing to respect CI_MODE and USE_TLS flags
 
 [[ -n "$*" && "${*}" == *\ local ]] && TARGET_HOST=local
 
@@ -54,14 +52,32 @@ INSTALL_POSTGRESQL=${INSTALL_POSTGRESQL:-"false"}
 INSTALL_CUSTOM_OBJECT_ENABLED=${INSTALL_CUSTOM_OBJECT_ENABLED:-"false"}
 FORCE_INTERACTIVE=${FORCE_INTERACTIVE:-"false"}
 
+# CI mode settings
+CI_MODE=${CI_MODE:-"false"}
+# USE_TLS: empty string or "false" means no TLS, "true" means TLS
+# In CI mode, default to no TLS unless explicitly set
+if [[ -z ${USE_TLS+x} ]]; then
+  # USE_TLS not set at all - use defaults based on CI_MODE
+  if [[ ${CI_MODE} == "true" ]]; then
+    USE_TLS="false"
+  else
+    USE_TLS="true"
+  fi
+elif [[ -z ${USE_TLS} ]]; then
+  # USE_TLS set to empty string - treat as false
+  USE_TLS="false"
+fi
+
 if [[ ${TARGET_HOST} == local ]]; then
   KO_EXTRA_FLAGS=(--insecure-registry)
   DOMAIN_NAME=${TARGET_HOST}
-  REGISTRY=registry.127.0.0.1.nip.io
-  FORGE_HOST=gitea.127.0.0.1.nip.io
+  # Allow domain override via PAAC_DOMAIN for CI compatibility
+  PAAC_DOMAIN=${PAAC_DOMAIN:-"127.0.0.1.nip.io"}
+  REGISTRY=registry.${PAAC_DOMAIN}
+  FORGE_HOST=gitea.${PAAC_DOMAIN}
   TARGET_BIND_IP=127.0.0.1
-  DASHBOARD=dashboard.127.0.0.1.nip.io
-  PAAC=paac.127.0.0.1.nip.io
+  DASHBOARD=dashboard.${PAAC_DOMAIN}
+  PAAC=paac.${PAAC_DOMAIN}
 fi
 [[ -z ${DOMAIN_NAME} || -z ${TARGET_HOST} || -z ${TARGET_BIND_IP} || -z ${REGISTRY} || -z ${DASHBOARD} || -z ${PAAC} ]] && {
   echo "Need to set DOMAIN_NAME, TARGET_HOST, TARGET_BIND_IP, REGISTRY, DASHBOARD and PAAC in your $HOME/.config/startpaac/config"
@@ -81,23 +97,28 @@ if [[ -z ${TARGET_HOST} ]] || [[ -z ${DOMAIN_NAME} ]] || [[ -z ${REGISTRY} ]] ||
 fi
 
 show_config() {
-  local smee_url
+  local smee_url protocol
   if [[ -n ${PAC_PASS_SECRET_FOLDER:-""} ]]; then
     smee_url=$(pass show ${PAC_PASS_SECRET_FOLDER}/smee)
   elif [[ -n ${PAC_SECRET_FOLDER:-""} ]]; then
     smee_url=$(cat ${PAC_SECRET_FOLDER}/smee)
+  fi
+  if [[ ${USE_TLS} == "true" ]]; then
+    protocol="https"
+  else
+    protocol="http"
   fi
   cat <<EOF
 Using configuration on ${TARGET_HOST}:
 
 DOMAIN_NAME: ${DOMAIN_NAME},
 TARGET_BIND_IP: ${TARGET_BIND_IP}
-PAAC: https://${PAAC}
-REGISTRY: https://${REGISTRY}
-FORGE_HOST: https://${FORGE_HOST}
-DASHBOARD: https://${DASHBOARD}
+PAAC: ${protocol}://${PAAC}
+REGISTRY: ${protocol}://${REGISTRY}
+FORGE_HOST: ${protocol}://${FORGE_HOST}
+DASHBOARD: ${protocol}://${DASHBOARD}
   GOSMEE:
-  gosmee client --saveDir /tmp/replay ${smee_url} https://${PAAC}
+  gosmee client --saveDir /tmp/replay ${smee_url} ${protocol}://${PAAC}
 EOF
 }
 
@@ -183,7 +204,11 @@ install_dashboard() {
   show_step "Deploying Tekton Dashboard"
   release_yaml=$(cache_yaml_file dashboard https://storage.googleapis.com/tekton-releases/dashboard/latest/release.yaml)
   kubectl apply --filename "${release_yaml}" >/dev/null
-  create_ingress tekton-pipelines tekton-dashboard ${DASHBOARD} 9097
+  if [[ ${USE_TLS} == "true" ]]; then
+    create_ingress tekton-pipelines tekton-dashboard ${DASHBOARD} 9097
+  else
+    create_ingress_http tekton-pipelines tekton-dashboard ${DASHBOARD} 9097
+  fi
 }
 
 stop_kind() {
@@ -224,7 +249,7 @@ install_pac() {
     ;;
   esac
   extras=()
-  [[ -e pkg/test/nonoai/deployment-extras.yaml ]] && extras+=(-f pkg/test/nonoai/deployment-extras.yaml)
+  [[ -e "${PAC_DIR}/pkg/test/nonoai/deployment.yaml" ]] && extras+=(-f "${PAC_DIR}/pkg/test/nonoai/deployment.yaml")
   env KO_DOCKER_REPO="${REGISTRY}" ko resolve -f"${c}" "${extras[@]}" -B --sbom=none "${KO_EXTRA_FLAGS[@]}" >"${tmppac}"
   if [[ -n ${PAC_IMAGE_NONROOT} && "${PAC_IMAGE_NONROOT}" == false ]]; then
     sed -i 's/^\(\s*runAsNonRoot:\) true/\1 false/' "${tmppac}"
@@ -282,7 +307,13 @@ configure_pac() {
   local pac_controller_secret=pipelines-as-code-secret no_ingress=
   show_step "Configuring PAC"
   [[ -n ${1:-} && ${1} == "--no-ingress" ]] && no_ingress=yes
-  [[ -z ${no_ingress} ]] && create_ingress pipelines-as-code pipelines-as-code-controller "${PAAC}" 8080
+  if [[ -z ${no_ingress} ]]; then
+    if [[ ${USE_TLS} == "true" ]]; then
+      create_ingress pipelines-as-code pipelines-as-code-controller "${PAAC}" 8080
+    else
+      create_ingress_http pipelines-as-code pipelines-as-code-controller "${PAAC}" 8080
+    fi
+  fi
   patch_configmap "${PAC_CONTROLLER_TARGET_NS}"
 
   if [[ -n ${PAC_PASS_SECRET_FOLDER:-} ]]; then
@@ -332,11 +363,17 @@ function start_user_gosmee() {
   local service=${1:-"gosmee"}
   local smeeurl=${2:-}
   local controllerURL=${3:-}
+  local protocol
+  if [[ ${USE_TLS} == "true" ]]; then
+    protocol="https"
+  else
+    protocol="http"
+  fi
   type -p systemctl >/dev/null 2>/dev/null && return
   [[ -e ${HOME}/.config/systemd/user/${service}.service ]] || {
     if [[ -n ${smeeurl} ]]; then
       show_step "Run gosmee manually"
-      echo "gosmee client --saveDir /tmp/replay ${smeeurl} https://${controllerURL}"
+      echo "gosmee client --saveDir /tmp/replay ${smeeurl} ${protocol}://${controllerURL}"
     else
       echo "Skipping running gosmee: cannot find ${HOME}/.config/systemd/user/${service}.service"
     fi
@@ -417,7 +454,11 @@ EOF
   fi
 
   show_step "Creating ingress for ${pac_controller_label} controller"
-  create_ingress ${PAC_CONTROLLER_TARGET_NS} ${pac_controller_label}-controller "${gosmeeTargetURL}" 8080
+  if [[ ${USE_TLS} == "true" ]]; then
+    create_ingress ${PAC_CONTROLLER_TARGET_NS} ${pac_controller_label}-controller "${gosmeeTargetURL}" 8080
+  else
+    create_ingress_http ${PAC_CONTROLLER_TARGET_NS} ${pac_controller_label}-controller "${gosmeeTargetURL}" 8080
+  fi
   kubectl delete deployment -n ${PAC_CONTROLLER_TARGET_NS} gosmee-${pac_controller_label} 2>/dev/null || true
   start_user_gosmee ghe ${pac_controller_smee_url} "${gosmeeTargetURL}"
 }
@@ -647,6 +688,19 @@ show_selected_components() {
 }
 
 function parse_args() {
+  # Pre-parse for --ci and --no-tls/--http to set flags before check_tools()
+  for arg in "$@"; do
+    case "$arg" in
+      --ci) CI_MODE="true"; USE_TLS="false" ;;
+      --no-tls|--http) USE_TLS="false" ;;
+    esac
+  done
+
+  # Now check tools with correct CI_MODE and USE_TLS values
+  if ! check_tools; then
+    exit 1
+  fi
+
   # use getopt to parse arguments
   args=$(getopt \
     -o O:HASGsakhgc:ptFiR \
@@ -681,7 +735,11 @@ function parse_args() {
     scale-down:,
     menu,
     interactive,
-    reset-preferences
+    reset-preferences,
+    ci,
+    no-tls,
+    http,
+    kind
     " -- "$@")
   #shellcheck disable=SC2181
   if [ $? -ne 0 ]; then
@@ -846,6 +904,14 @@ function parse_args() {
     -i | --menu | --interactive) # Force interactive component selection menu
       FORCE_INTERACTIVE="true"
       ;;
+    --ci) # Non-interactive CI mode (skips gum, uses HTTP)
+      CI_MODE="true"
+      USE_TLS="false"
+      FORCE_INTERACTIVE="false"
+      ;;
+    --no-tls | --http) # Use HTTP instead of HTTPS (skip TLS/minica)
+      USE_TLS="false"
+      ;;
     -R | --reset-preferences) # Reset saved component preferences
       reset_preferences
       exit 0
@@ -867,9 +933,21 @@ function parse_args() {
     shift
   done
 
-  # No arguments given - interactive mode
+  # No arguments given - interactive mode (or CI mode)
   show_config
   echo
+
+  # In CI mode, skip all interactive prompts
+  if [[ ${CI_MODE} == "true" ]]; then
+    echo_color yellow "CI mode enabled - using defaults, skipping interactive prompts"
+    # Use preferences if available, otherwise use defaults
+    [[ -f ${PREFERENCES_FILE} ]] && load_preferences
+    show_selected_components
+    install_kind
+    all
+    show_config
+    exit
+  fi
 
   # Determine whether to show menu
   local show_menu=true
