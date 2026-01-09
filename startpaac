@@ -696,7 +696,7 @@ function parse_args() {
   # Pre-parse for --ci and --no-tls/--http to set flags before check_tools()
   for arg in "$@"; do
     case "$arg" in
-      --ci) CI_MODE="true"; USE_TLS="false" ;;
+      --ci) CI_MODE="true" ;;
       --no-tls|--http) USE_TLS="false" ;;
     esac
   done
@@ -909,9 +909,8 @@ function parse_args() {
     -i | --menu | --interactive) # Force interactive component selection menu
       FORCE_INTERACTIVE="true"
       ;;
-    --ci) # Non-interactive CI mode (skips gum, uses HTTP)
+    --ci) # Non-interactive CI mode (skips gum, uses TLS with minica)
       CI_MODE="true"
-      USE_TLS="false"
       FORCE_INTERACTIVE="false"
       ;;
     --no-tls | --http) # Use HTTP instead of HTTPS (skip TLS/minica)
