@@ -20,6 +20,10 @@ nodes:
         hostPort: 443
         listenAddress: "%TARGET_BIND_IP%"
         protocol: TCP
+      - containerPort: 32567
+        hostPort: 3000
+        listenAddress: "%TARGET_BIND_IP%"
+        protocol: TCP
 containerdConfigPatches:
   - |-
     [plugins."io.containerd.grpc.v1.cri".registry.configs."%REGISTRY%".tls]

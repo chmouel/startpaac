@@ -15,6 +15,12 @@ persistence:
 image:
   rootless: true
 
+service:
+  http:
+    type: NodePort
+    port: 3000
+    nodePort: 32567
+
 ingress:
   enabled: true
   className: "nginx"
