@@ -18,15 +18,8 @@ image:
 ingress:
   enabled: true
   className: "nginx"
-  hosts:
-    - host: "${host}"
-      paths:
-        - path: /
-          pathType: Prefix
-  tls:
-    - hosts:
-        - "${host}"
-      secretName: "${sec_name}"
+  # Host is set via --set ingress.hosts[0].host=...
+  # TLS is conditionally added via --set flags when USE_TLS=true
 
 gitea:
   additionalConfigFromEnvs:

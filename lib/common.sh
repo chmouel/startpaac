@@ -124,6 +124,35 @@ spec:
 EOF
 }
 
+create_ingress_http() {
+  local namespace=$1
+  local component=$2
+  local host=$3
+  local targetPort=$4
+
+  echo "Creating HTTP ingress on $(echo_color brightgreen "http://${host}") for ${component}:${targetPort} in ${namespace}"
+  kubectl apply -f - <<EOF
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: "${component}"
+  namespace: "${namespace}"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: "${host}"
+      http:
+        paths:
+          - pathType: ImplementationSpecific
+            backend:
+              service:
+                name: "${component}"
+                port:
+                  number: ${targetPort}
+EOF
+}
+
 generate_certs_minica() {
   local domain="$1"
   [[ -e ${CERT_DIR}/${domain}/cert.pem ]] && return 0
@@ -201,14 +230,27 @@ check_tools() {
     "kind"
     "ko"
     "base64"
-    "ssh"
-    "scp"
     "sed"
     "mktemp"
     "readlink"
-    "gum"
     "jq"
   )
+
+  # Only require gum in interactive mode
+  if [[ ${CI_MODE:-false} != "true" ]]; then
+    tools+=("gum")
+  fi
+
+  # Only require minica if using TLS
+  if [[ ${USE_TLS:-true} == "true" ]]; then
+    tools+=("minica")
+  fi
+
+  # Only require ssh/scp for remote targets
+  if [[ ${TARGET_HOST:-local} != "local" ]]; then
+    tools+=("ssh" "scp")
+  fi
+
   for tool in "${tools[@]}"; do
     if ! command -v "$tool" &>/dev/null; then
       echo "Error: $tool is not installed or not in PATH."

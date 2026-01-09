@@ -11,12 +11,22 @@ FORGE_HOST=${FORGE_HOST:-""}
 forge_secret_name=forge-tls
 
 kubectl create namespace ${NS} 2>/dev/null || true
-create_tls_secret $FORGE_HOST ${forge_secret_name} ${NS}
 
-helm uninstall forgejo -n ${NS} >/dev/null || true
+# Build TLS args conditionally
+HELM_TLS_ARGS=()
+if [[ ${USE_TLS:-true} == "true" ]]; then
+  create_tls_secret $FORGE_HOST ${forge_secret_name} ${NS}
+  HELM_TLS_ARGS=(
+    --set "ingress.tls[0].hosts[0]=${FORGE_HOST}"
+    --set "ingress.tls[0].secretName=${forge_secret_name}"
+  )
+fi
+
+helm uninstall forgejo -n ${NS} >/dev/null 2>&1 || true
 helm install --wait -f ${fpath}/values.yaml \
   --replace \
-  --set ingress.hosts[0].host=${FORGE_HOST} \
-  --set ingress.tls[0].hosts[0]=${FORGE_HOST} \
-  --set ingress.tls[0].secretName=${forge_secret_name} \
+  --set "ingress.hosts[0].host=${FORGE_HOST}" \
+  --set "ingress.hosts[0].paths[0].path=/" \
+  --set "ingress.hosts[0].paths[0].pathType=Prefix" \
+  "${HELM_TLS_ARGS[@]}" \
   --create-namespace -n ${NS} forgejo oci://code.forgejo.org/forgejo-helm/forgejo
