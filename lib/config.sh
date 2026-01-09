@@ -4,7 +4,8 @@ echo "Loading configuration from ${CONFIG_FILE}"
 
 if [[ -e "${CONFIG_FILE}" ]]; then
   source "${CONFIG_FILE}"
-else
+elif [[ -z ${PAC_DIR:-} ]]; then
+  # Only require config file if PAC_DIR is not already set (e.g., in CI)
   mkdir -p "$(dirname "$CONFIG_FILE")"
   echo "Creating a sample $HOME/.config/startpaac/config file"
   cat <<EOF >"${CONFIG_FILE}"
@@ -81,4 +82,6 @@ EOF
   echo "Adjust your PAC_DIR to where pipelines-as-code is checked out"
   echo "And go to the directory ~/.local/share/startpaac/secrets and add the secrets into the files in there"
   exit 1
+else
+  echo "Config file not found, but PAC_DIR is set via environment - proceeding"
 fi
